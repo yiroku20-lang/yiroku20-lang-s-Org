@@ -1,0 +1,46 @@
+{
+  "name": "unsaac-admin-console",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx server.ts",
+    "start": "tsx server.ts",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@google/genai": "^1.39.0",
+    "@supabase/supabase-js": "2",
+    "cors": "^2.8.6",
+    "date-fns": "^4.1.0",
+    "dotenv": "^17.4.1",
+    "express": "^5.2.1",
+    "html2pdf.js": "^0.14.0",
+    "jspdf": "^4.2.0",
+    "jspdf-autotable": "^5.0.7",
+    "lucide-react": "^1.11.0",
+    "motion": "^12.38.0",
+    "nodemailer": "^8.0.1",
+    "papaparse": "^5.5.3",
+    "react": "^19.2.4",
+    "react-barcode": "^1.6.1",
+    "react-dom": "^19.2.4",
+    "react-router-dom": "^7.13.0",
+    "react-to-print": "^3.3.0",
+    "recharts": "^3.7.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.14.0",
+    "@types/nodemailer": "^7.0.11",
+    "@types/papaparse": "^5.5.2",
+    "@vitejs/plugin-react": "^5.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
+  }
+}
