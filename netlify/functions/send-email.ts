@@ -11,7 +11,10 @@ export const handler = async (event: any) => {
     const body = JSON.parse(event.body);
     const { to, subject, text, html, attachmentBase64, filename } = body;
 
-    if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+    const gmailUser = process.env.GMAIL_USER || "admision@unsaac.edu.pe";
+    const gmailPass = process.env.GMAIL_APP_PASSWORD || "oaki mixo wlwa pecc";
+
+    if (!gmailUser || !gmailPass) {
       return {
         statusCode: 500,
         body: JSON.stringify({ error: "Credenciales de correo no configuradas." })
@@ -22,13 +25,13 @@ export const handler = async (event: any) => {
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: {
-        user: process.env.GMAIL_USER,
-        pass: process.env.GMAIL_APP_PASSWORD,
+        user: gmailUser,
+        pass: gmailPass,
       },
     });
 
     const mailOptions: any = {
-      from: `"Admisión UNSAAC" <${process.env.GMAIL_USER}>`,
+      from: `"Admisión UNSAAC" <${gmailUser}>`,
       to,
       subject,
     };

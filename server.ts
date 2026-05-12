@@ -236,20 +236,23 @@ async function startServer() {
         </div>
       `;
 
-      if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+      const gmailUser = process.env.GMAIL_USER || "admision@unsaac.edu.pe";
+      const gmailPass = process.env.GMAIL_APP_PASSWORD || "oaki mixo wlwa pecc";
+
+      if (!gmailUser || !gmailPass) {
         return res.status(500).json({ error: "Credenciales de correo no configuradas." });
       }
 
       const transporter = nodemailer.createTransport({
         service: "gmail",
         auth: {
-          user: process.env.GMAIL_USER,
-          pass: process.env.GMAIL_APP_PASSWORD,
+          user: gmailUser,
+          pass: gmailPass,
         },
       });
 
       const mailOptions = {
-        from: `"Admisión UNSAAC" <${process.env.GMAIL_USER}>`,
+        from: `"Admisión UNSAAC" <${gmailUser}>`,
         to: correo,
         subject: `¡Bienvenido(a) a Atención y Orientación al Postulante UNSAAC, ${nombre}!`,
         html: welcomeHtml,
@@ -272,7 +275,10 @@ async function startServer() {
     try {
       const { to, subject, text, html, attachmentBase64, filename } = req.body;
 
-      if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+      const gmailUser = process.env.GMAIL_USER || "admision@unsaac.edu.pe";
+      const gmailPass = process.env.GMAIL_APP_PASSWORD || "oaki mixo wlwa pecc";
+
+      if (!gmailUser || !gmailPass) {
         return res.status(500).json({ 
           error: "Credenciales de correo no configuradas en el servidor. Por favor configure GMAIL_USER y GMAIL_APP_PASSWORD." 
         });
@@ -281,13 +287,13 @@ async function startServer() {
       const transporter = nodemailer.createTransport({
         service: "gmail",
         auth: {
-          user: process.env.GMAIL_USER,
-          pass: process.env.GMAIL_APP_PASSWORD,
+          user: gmailUser,
+          pass: gmailPass,
         },
       });
 
       const mailOptions: any = {
-        from: `"Admisión UNSAAC" <${process.env.GMAIL_USER}>`,
+        from: `"Admisión UNSAAC" <${gmailUser}>`,
         to,
         subject,
         text,
