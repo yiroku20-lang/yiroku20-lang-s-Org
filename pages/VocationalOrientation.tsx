@@ -85,6 +85,13 @@ Síguenos en nuestras redes sociales para estar siempre informado:
 Atentamente,
 Dirección de Admisión`);
 
+  const [colegioSearch, setColegioSearch] = useState('');
+  const [colegiosData, setColegiosData] = useState<any[]>([]);
+  const [showColegios, setShowColegios] = useState(false);
+  const [ubigeoSearch, setUbigeoSearch] = useState('');
+  const [ubigeosData, setUbigeosData] = useState<any[]>([]);
+  const [showUbigeos, setShowUbigeos] = useState(false);
+
   useEffect(() => {
     fetchProspects();
     fetchEscuelas();
@@ -177,6 +184,34 @@ Dirección de Admisión`);
       setLoading(false);
       setIsDniValidated(true);
     }
+  };
+
+  const searchColegios = async (text: string) => {
+    setColegioSearch(text);
+    if (text.length < 3) {
+      setColegiosData([]);
+      return;
+    }
+    const { data } = await supabase
+      .from('colegios')
+      .select('nombre_ie, codigo_modular, lugar')
+      .ilike('nombre_ie', `%${text}%`)
+      .limit(10);
+    setColegiosData(data || []);
+  };
+
+  const searchUbigeos = async (text: string) => {
+    setUbigeoSearch(text);
+    if (text.length < 3) {
+      setUbigeosData([]);
+      return;
+    }
+    const { data } = await supabase
+      .from('ubigeos')
+      .select('distrito, provincia, departamento')
+      .ilike('distrito', `%${text}%`)
+      .limit(10);
+    setUbigeosData(data || []);
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -505,6 +540,8 @@ _Dirección de Admisión UNSAAC_`;
   const openNewProspect = () => {
     setSelectedProspect(null);
     setIsDniValidated(false);
+    setColegioSearch('');
+    setUbigeoSearch('');
     setFormData({ nombre: '', dni: '', correo: '', celular: '', colegio_procedencia: '', grado_academico: '', carrera_interes: '', area_interes: '', modalidades_interes: [], region: '', estado_contacto: 'Pendiente', suscrito: true });
     setIsModalOpen(true);
   };
@@ -512,6 +549,8 @@ _Dirección de Admisión UNSAAC_`;
   const openEditProspect = (p: Prospecto) => {
     setSelectedProspect(p);
     setIsDniValidated(true);
+    setColegioSearch(p.colegio_procedencia || '');
+    setUbigeoSearch(p.region || '');
     setFormData({
       nombre: p.nombre,
       dni: p.dni,
@@ -780,9 +819,36 @@ _Dirección de Admisión UNSAAC_`;
                         <span className="text-[10px] font-black text-slate-500 uppercase">Correo Electrónico *</span>
                         <input type="email" required value={formData.correo} onChange={e => setFormData({...formData, correo: e.target.value})} className="h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 font-medium text-sm outline-none focus:border-indigo-500 focus:bg-white transition-all" />
                     </label>
-                    <label className="flex flex-col gap-1 col-span-2">
+                    <label className="flex flex-col gap-1 col-span-2 relative">
                         <span className="text-[10px] font-black text-slate-500 uppercase">Colegio de Procedencia</span>
-                        <input type="text" value={formData.colegio_procedencia} onChange={e => setFormData({...formData, colegio_procedencia: e.target.value})} className="h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 font-medium text-sm outline-none focus:border-indigo-500 focus:bg-white transition-all" />
+                        <input 
+                          type="text" 
+                          value={colegioSearch} 
+                          onChange={e => searchColegios(e.target.value)} 
+                          onFocus={() => setShowColegios(true)}
+                          onBlur={() => setTimeout(() => setShowColegios(false), 200)}
+                          className="h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 font-medium text-sm outline-none focus:border-indigo-500 focus:bg-white transition-all" 
+                          placeholder="Escribe para buscar colegio..."
+                        />
+                        {showColegios && colegiosData.length > 0 && (
+                          <div className="absolute top-full mt-1 w-full bg-white border border-slate-200 shadow-xl rounded-xl max-h-48 overflow-y-auto z-50 p-1">
+                            {colegiosData.map((c, i) => (
+                              <div 
+                                key={i} 
+                                className="px-4 py-2 hover:bg-slate-50 cursor-pointer rounded-lg transition-colors border-b border-slate-50 last:border-0"
+                                onClick={() => {
+                                  setColegioSearch(c.nombre_ie);
+                                  setFormData({...formData, colegio_procedencia: c.nombre_ie});
+                                  setShowColegios(false);
+                                }}
+                              >
+                                <div className="font-bold text-slate-700 text-xs">{c.nombre_ie}</div>
+                                <div className="text-[10px] text-slate-500">{c.codigo_modular} - {c.lugar}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <input type="hidden" value={formData.colegio_procedencia} />
                     </label>
                     <label className="flex flex-col gap-1 col-span-2">
                         <span className="text-[10px] font-black text-slate-500 uppercase">Grado Académico / Año de Estudios</span>
@@ -812,14 +878,36 @@ _Dirección de Admisión UNSAAC_`;
                           {escuelasData.filter(c => formData.area_interes ? c.area === formData.area_interes.match(/Área ([A-Z])/)?.[1] : true).map(c => <option key={c.nombre} value={c.nombre}>{c.nombre}</option>)}
                         </select>
                     </label>
-                    <label className="flex flex-col gap-1 col-span-2">
-                        <span className="text-[10px] font-black text-slate-500 uppercase">Región / Departamento</span>
-                        <select value={formData.region} onChange={e => setFormData({...formData, region: e.target.value})} className="h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 font-medium text-sm outline-none focus:border-indigo-500 focus:bg-white transition-all">
-                          <option value="">Seleccione una región (Opcional)</option>
-                          {REGIONES_PERU.map(region => (
-                            <option key={region} value={region}>{region}</option>
-                          ))}
-                        </select>
+                    <label className="flex flex-col gap-1 col-span-2 relative">
+                        <span className="text-[10px] font-black text-slate-500 uppercase">Región / Departamento (Distrito)</span>
+                        <input 
+                          type="text" 
+                          value={ubigeoSearch} 
+                          onChange={e => searchUbigeos(e.target.value)} 
+                          onFocus={() => setShowUbigeos(true)}
+                          onBlur={() => setTimeout(() => setShowUbigeos(false), 200)}
+                          className="h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 font-medium text-sm outline-none focus:border-indigo-500 focus:bg-white transition-all" 
+                          placeholder="Buscar por distrito..."
+                        />
+                        {showUbigeos && ubigeosData.length > 0 && (
+                          <div className="absolute top-full mt-1 w-full bg-white border border-slate-200 shadow-xl rounded-xl max-h-48 overflow-y-auto z-50 p-1">
+                            {ubigeosData.map((u, i) => (
+                              <div 
+                                key={i} 
+                                className="px-4 py-2 hover:bg-slate-50 cursor-pointer rounded-lg transition-colors border-b border-slate-50 last:border-0"
+                                onClick={() => {
+                                  const text = `${u.departamento} / ${u.provincia} / ${u.distrito}`;
+                                  setUbigeoSearch(text);
+                                  setFormData({...formData, region: text});
+                                  setShowUbigeos(false);
+                                }}
+                              >
+                                <div className="font-bold text-slate-700 text-xs">{u.distrito}</div>
+                                <div className="text-[10px] text-slate-500">{u.provincia}, {u.departamento}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                     </label>
                     <label className="flex flex-col gap-1">
                         <span className="text-[10px] font-black text-slate-500 uppercase">Estado</span>

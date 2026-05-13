@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { User } from '../types';
+import { DataImport } from '../components/DataImport';
 
 export const Settings: React.FC<{ user: User, notify?: (msg: string, type?: 'success'|'error'|'warning') => void }> = ({ user, notify }) => {
   const [users, setUsers] = useState<any[]>([]);
@@ -744,6 +745,11 @@ VALUES
           </div>
         </div>
       </div>
+
+      {/* Importar Datos Maestros */}
+      {user.role === 'Administrador' && (
+        <DataImport notify={notify} />
+      )}
 
       {/* User Modal */}
       {isModalOpen && (
