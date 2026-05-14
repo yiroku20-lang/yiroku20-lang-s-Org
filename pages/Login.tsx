@@ -20,29 +20,39 @@ export const Login: React.FC<Props> = ({ onLogin }) => {
     setError('');
 
     try {
-        // Buscamos el usuario por DNI y Contraseña en la tabla 'usuarios'
-        const { data, error: dbError } = await supabase
-            .from('usuarios')
-            .select('*')
-            .eq('dni', dni.trim())
-            .eq('password', password.trim())
-            .maybeSingle();
+        // 1. Iniciar sesión usando Supabase Auth (Seguro, maneja los JWT automáticamente)
+        const email = `${dni.trim()}@admin.unsaac.pe`;
+        
+        const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+            email,
+            password: password.trim()
+        });
 
-        if (dbError) {
-            console.error(dbError);
-            setError('Error de conexión con la base de datos.');
+        if (authError) {
+            console.error(authError);
+            setError('Credenciales incorrectas o usuario no existe.');
             setIsLoading(false);
             return;
         }
 
-        if (!data) {
-            setError('DNI o contraseña incorrectos.');
+        // 2. Obtener los roles y permisos del perfil del usuario
+        const { data: userData, error: dbError } = await supabase
+            .from('usuarios')
+            .select('*')
+            .eq('id', authData.user.id)
+            .maybeSingle();
+
+        if (dbError || !userData) {
+            console.error(dbError);
+            setError('No se pudo obtener el perfil de usuario.');
+            // Deslogueamos si no hay perfil válido
+            await supabase.auth.signOut();
             setIsLoading(false);
             return;
         }
 
         // Login exitoso
-        onLogin(data);
+        onLogin(userData);
         navigate('/');
     } catch (err: any) {
         setError('Error inesperado del servidor.');

@@ -7,7 +7,7 @@ export const DataImport: React.FC<{ notify?: (msg: string, type?: 'success'|'err
   const [loadingUbigeos, setLoadingUbigeos] = useState(false);
 
   const sqlColegios = `
--- EJECUTAR ESTE SCRIPT EN EL PANEL DE SQL BÁSICO
+-- EJECUTAR ESTE SCRIPT EN EL PANEL DE SQL BÁSICO DE SUPABASE
 DROP TABLE IF EXISTS public.colegios;
 CREATE TABLE public.colegios (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -18,15 +18,22 @@ CREATE TABLE public.colegios (
   tipo_gestion text,
   dependencia text,
   direccion_ie text,
-  lugar text -- Departamento / Provincia / Distrito
+  departamento_provincia_distrito text,
+  departamento text,
+  provincia text,
+  distrito text
 );
 ALTER TABLE public.colegios ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Acceso total colegios" ON public.colegios FOR ALL USING (true) WITH CHECK (true);
-GRANT ALL ON public.colegios TO anon, authenticated, service_role;
+CREATE POLICY "Permitir lectura colegios" ON public.colegios FOR SELECT USING (true);
+CREATE POLICY "Permitir insertar colegios" ON public.colegios FOR INSERT WITH CHECK (true);
+
+-- Si ya importaste la tabla antes, corre esto para separar las columnas:
+-- ALTER TABLE public.colegios ADD COLUMN IF NOT EXISTS departamento TEXT, ADD COLUMN IF NOT EXISTS provincia TEXT, ADD COLUMN IF NOT EXISTS distrito TEXT;
+-- UPDATE public.colegios SET departamento = trim(split_part(departamento_provincia_distrito, '/', 1)), provincia = trim(split_part(departamento_provincia_distrito, '/', 2)), distrito = trim(split_part(departamento_provincia_distrito, '/', 3)) WHERE departamento_provincia_distrito IS NOT NULL AND departamento IS NULL;
 `.trim();
 
   const sqlUbigeos = `
--- EJECUTAR ESTE SCRIPT EN EL PANEL DE SQL BÁSICO
+-- EJECUTAR ESTE SCRIPT EN EL PANEL DE SQL BÁSICO DE SUPABASE
 DROP TABLE IF EXISTS public.ubigeos;
 CREATE TABLE public.ubigeos (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -36,8 +43,8 @@ CREATE TABLE public.ubigeos (
   departamento text
 );
 ALTER TABLE public.ubigeos ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Acceso total ubigeos" ON public.ubigeos FOR ALL USING (true) WITH CHECK (true);
-GRANT ALL ON public.ubigeos TO anon, authenticated, service_role;
+CREATE POLICY "Permitir lectura ubigeos" ON public.ubigeos FOR SELECT USING (true);
+CREATE POLICY "Permitir insertar ubigeos" ON public.ubigeos FOR INSERT WITH CHECK (true);
 `.trim();
 
   const handleImportColegios = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -50,16 +57,23 @@ GRANT ALL ON public.ubigeos TO anon, authenticated, service_role;
       skipEmptyLines: true,
       complete: async (results) => {
         try {
-          const formattedData = results.data.map((row: any) => ({
-            codigo_modular: row['Codigo modular'] || row['codigo_modular'] || null,
-            codigo_institucion: row['Codigo de institución'] || row['codigo_institucion'] || null,
-            nombre_ie: row['Nombre de IE'] || row['nombre_ie'] || null,
-            nivel_modalidad: row['Nivel / Modalidad'] || row['nivel_modalidad'] || null,
-            tipo_gestion: row['Tipo de Gestion'] || row['tipo_gestion'] || null,
-            dependencia: row['Dependencia'] || row['dependencia'] || null,
-            direccion_ie: row['Direccion de IE'] || row['direccion_ie'] || null,
-            lugar: row['Departamento / Provincia / Distrito'] || row['lugar'] || null,
-          }));
+          const formattedData = results.data.map((row: any) => {
+            const rawLugar = row['Departamento / Provincia / Distrito'] || row['lugar'] || row['departamento_provincia_distrito'] || null;
+            const parts = rawLugar ? rawLugar.split('/').map((s: string) => s.trim()) : [];
+            return {
+              codigo_modular: row['Codigo modular'] || row['codigo_modular'] || null,
+              codigo_institucion: row['Codigo de institución'] || row['codigo_institucion'] || null,
+              nombre_ie: row['Nombre de IE'] || row['nombre_ie'] || null,
+              nivel_modalidad: row['Nivel / Modalidad'] || row['nivel_modalidad'] || null,
+              tipo_gestion: row['Tipo de Gestion'] || row['tipo_gestion'] || null,
+              dependencia: row['Dependencia'] || row['dependencia'] || null,
+              direccion_ie: row['Direccion de IE'] || row['direccion_ie'] || null,
+              departamento_provincia_distrito: rawLugar,
+              departamento: parts[0] || null,
+              provincia: parts[1] || null,
+              distrito: parts[2] || null,
+            };
+          });
 
           // Insert in chunks of 500
           for (let i = 0; i < formattedData.length; i += 500) {

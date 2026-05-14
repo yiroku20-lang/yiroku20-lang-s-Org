@@ -60,11 +60,11 @@ export const Settings: React.FC<{ user: User, notify?: (msg: string, type?: 'suc
     }
     setIsChangingPassword(true);
     try {
-      const { error } = await supabase
-        .from('usuarios')
-        .update({ password: newPassword })
-        .eq('id', user.id);
-      if (error) throw error;
+      const { error: authError } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+      if (authError) throw authError;
+
       notify?.('Contraseña actualizada exitosamente.', 'success');
       setNewPassword('');
       setConfirmPassword('');
@@ -112,15 +112,31 @@ export const Settings: React.FC<{ user: User, notify?: (msg: string, type?: 'suc
       }
 
       if (editingId) {
-        const { error } = await supabase
+        // Update user profile
+        const { error: profileError } = await supabase
           .from('usuarios')
           .update(userData)
           .eq('id', editingId);
-        if (error) throw error;
+        if (profileError) throw profileError;
+        
+        // If password was provided, update it via our secure RPC
+        if (password) {
+           const { error: passError } = await supabase.rpc('admin_update_user_password', {
+             p_user_id: editingId,
+             p_new_password: password.trim()
+           });
+           if (passError) throw passError;
+        }
+
       } else {
-        const { error } = await supabase
-          .from('usuarios')
-          .insert([userData]);
+        // Create new user using secure RPC to sync with auth.users
+        const { error } = await supabase.rpc('admin_create_user', {
+          p_dni: dni.trim(),
+          p_password: password.trim(),
+          p_name: name.trim(),
+          p_role: role,
+          p_permissions: role === 'Operador' ? permissions : null
+        });
         if (error) throw error;
       }
 
@@ -356,12 +372,11 @@ export const Settings: React.FC<{ user: User, notify?: (msg: string, type?: 'suc
 
   const sqlUsers = `
 -- TABLA DE USUARIOS Y ACCESO
-DROP TABLE IF EXISTS public.usuarios;
-CREATE TABLE public.usuarios (
-  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS public.usuarios (
+  id uuid REFERENCES auth.users(id) PRIMARY KEY,
   created_at timestamp with time zone DEFAULT now(),
   dni text UNIQUE NOT NULL,
-  password text NOT NULL,
+  password text NOT NULL, -- TODO: deprecate once we confirm all users are properly migrated
   name text NOT NULL,
   role text NOT NULL DEFAULT 'Operador', -- Administrador, Director, Operador
   permissions jsonb -- Array de permisos para Operadores
@@ -369,12 +384,14 @@ CREATE TABLE public.usuarios (
 
 -- Habilitar RLS
 ALTER TABLE public.usuarios ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Acceso total usuarios" ON public.usuarios FOR ALL USING (true) WITH CHECK (true);
-GRANT ALL ON public.usuarios TO anon, authenticated, service_role;
+-- Permitir lectura solo si el usuario está logueado
+DROP POLICY IF EXISTS "Acceso lectura usuarios" ON public.usuarios;
+CREATE POLICY "Acceso lectura usuarios" ON public.usuarios FOR SELECT USING (auth.role() = 'authenticated');
 
--- Insertar Administrador Inicial
-INSERT INTO public.usuarios (dni, password, name, role)
-VALUES ('123456', '123', 'Administrador Sistema', 'Administrador');
+-- Aquí irían políticas más estrictas para INSERT/UPDATE/DELETE (e.g. solo Admin)
+-- Por ahora la aplicación usa la DB con el service role en varios lados o dejamos esto:
+DROP POLICY IF EXISTS "Resto acceso usuarios admin" ON public.usuarios;
+CREATE POLICY "Resto acceso usuarios admin" ON public.usuarios FOR ALL USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
 
 -- TABLA DE ASISTENCIA
 CREATE TABLE IF NOT EXISTS public.asistencia (
@@ -389,14 +406,14 @@ CREATE TABLE IF NOT EXISTS public.asistencia (
 );
 
 ALTER TABLE public.asistencia ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Acceso lectura asistencia" ON public.asistencia;
+DROP POLICY IF EXISTS "Acceso total asistencia" ON public.asistencia;
 CREATE POLICY "Acceso total asistencia" ON public.asistencia FOR ALL USING (true) WITH CHECK (true);
-GRANT ALL ON public.asistencia TO anon, authenticated, service_role;
   `.trim();
 
   const sqlTemplates = `
 -- TABLA DE PLANTILLAS (RECREAR)
-DROP TABLE IF EXISTS public.templates;
-CREATE TABLE public.templates (
+CREATE TABLE IF NOT EXISTS public.templates (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   created_at timestamp with time zone DEFAULT now(),
   name text NOT NULL,
@@ -409,8 +426,8 @@ CREATE TABLE public.templates (
 
 -- Habilitar RLS
 ALTER TABLE public.templates ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Acceso total plantillas" ON public.templates FOR ALL USING (true) WITH CHECK (true);
-GRANT ALL ON public.templates TO anon, authenticated, service_role;
+DROP POLICY IF EXISTS "Acceso total plantillas" ON public.templates;
+CREATE POLICY "Acceso total plantillas" ON public.templates FOR ALL USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
 
 -- TABLA DE PROSPECTOS VOCACIONALES
 CREATE TABLE IF NOT EXISTS public.prospectos_vocacionales (
@@ -430,8 +447,18 @@ CREATE TABLE IF NOT EXISTS public.prospectos_vocacionales (
   resultados_test jsonb DEFAULT '[]'::jsonb
 );
 ALTER TABLE public.prospectos_vocacionales ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Acceso total prospectos_vocacionales" ON public.prospectos_vocacionales FOR ALL USING (true) WITH CHECK (true);
-GRANT ALL ON public.prospectos_vocacionales TO anon, authenticated, service_role;
+-- Mantenemos prospectos abiertos para leer y escribir, pero restringimos el borrado a autenticados
+DROP POLICY IF EXISTS "Acceso total prospectos_vocacionales" ON public.prospectos_vocacionales;
+DROP POLICY IF EXISTS "Permitir SELECT prospectos_vocacionales" ON public.prospectos_vocacionales;
+DROP POLICY IF EXISTS "Permitir INSERT prospectos_vocacionales" ON public.prospectos_vocacionales;
+DROP POLICY IF EXISTS "Permitir UPDATE prospectos_vocacionales" ON public.prospectos_vocacionales;
+DROP POLICY IF EXISTS "Permitir DELETE prospectos_vocacionales" ON public.prospectos_vocacionales;
+
+CREATE POLICY "Permitir SELECT prospectos_vocacionales" ON public.prospectos_vocacionales FOR SELECT USING (true);
+CREATE POLICY "Permitir INSERT prospectos_vocacionales" ON public.prospectos_vocacionales FOR INSERT WITH CHECK (true);
+CREATE POLICY "Permitir UPDATE prospectos_vocacionales" ON public.prospectos_vocacionales FOR UPDATE USING (true);
+CREATE POLICY "Permitir DELETE prospectos_vocacionales" ON public.prospectos_vocacionales FOR DELETE USING (auth.role() = 'authenticated');
+
 
 -- INSERTAR PLANTILLAS BASE
 INSERT INTO public.templates (name, description, category, content, thumbnail)

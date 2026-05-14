@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { User, ToastMessage, Prospecto } from '../types';
 import { format, parseISO } from 'date-fns';
@@ -186,32 +186,126 @@ Dirección de Admisión`);
     }
   };
 
+  const latestColegioSearch = useRef('');
+  const latestUbigeoSearch = useRef('');
+
+  const removeAccents = (str: string) => str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
+
   const searchColegios = async (text: string) => {
     setColegioSearch(text);
+    setFormData(prev => ({ ...prev, colegio_procedencia: text }));
+    setShowColegios(true);
+    
+    latestColegioSearch.current = text;
+    
     if (text.length < 3) {
       setColegiosData([]);
       return;
     }
-    const { data } = await supabase
-      .from('colegios')
-      .select('nombre_ie, codigo_modular, lugar')
-      .ilike('nombre_ie', `%${text}%`)
-      .limit(10);
-    setColegiosData(data || []);
+    
+    const cleanText = text.trim();
+    // Replace multiple spaces with a `%` to allow fuzzy searching words in order (e.g., 'san antonio' -> '%san%antonio%')
+    const searchPattern = `%${cleanText.replace(/\s+/g, '%')}%`;
+    const searchPatternNoAccents = removeAccents(searchPattern);
+    
+    let resultData: any[] = [];
+    const seenCodes = new Set<string>();
+    
+    // Extract region data in real time
+    const parts = (formData.region || '').split('/').map(s => s.trim());
+    const departamento = parts[0] || '';
+    const provincia = parts[1] || '';
+    
+    // Fase 1: Provincia Exacta
+    if (provincia) {
+      const { data: provData } = await supabase
+        .from('colegios')
+        .select('nombre_ie, codigo_modular, departamento_provincia_distrito')
+        .ilike('departamento_provincia_distrito', `% / ${provincia} / %`)
+        .or(`nombre_ie.ilike.${searchPattern},nombre_ie.ilike.${searchPatternNoAccents}`)
+        .limit(10);
+        
+      if (provData) {
+        provData.forEach(item => {
+          if (!seenCodes.has(item.codigo_modular)) {
+            seenCodes.add(item.codigo_modular);
+            resultData.push(item);
+          }
+        });
+      }
+    }
+    
+    // Fase 2: Triangulación por Región (Departamento)
+    if (resultData.length < 15 && departamento) {
+      const { data: depData } = await supabase
+        .from('colegios')
+        .select('nombre_ie, codigo_modular, departamento_provincia_distrito')
+        // Starts with departamento
+        .ilike('departamento_provincia_distrito', `${departamento} / %`)
+        .or(`nombre_ie.ilike.${searchPattern},nombre_ie.ilike.${searchPatternNoAccents}`)
+        .limit(15 - resultData.length);
+        
+      if (depData) {
+        depData.forEach(item => {
+          if (!seenCodes.has(item.codigo_modular)) {
+            seenCodes.add(item.codigo_modular);
+            resultData.push(item);
+          }
+        });
+      }
+    }
+    
+    // Fase 3: Búsqueda Nacional / Global
+    if (resultData.length < 15) {
+      const { data: globalData } = await supabase
+        .from('colegios')
+        .select('nombre_ie, codigo_modular, departamento_provincia_distrito')
+        .or(`nombre_ie.ilike.${searchPattern},nombre_ie.ilike.${searchPatternNoAccents}`)
+        .limit(15 - resultData.length);
+        
+      if (globalData) {
+        globalData.forEach(item => {
+          if (!seenCodes.has(item.codigo_modular)) {
+            seenCodes.add(item.codigo_modular);
+            resultData.push(item);
+          }
+        });
+      }
+    }
+    
+    if (latestColegioSearch.current === text) {
+      setColegiosData(resultData);
+    }
   };
 
   const searchUbigeos = async (text: string) => {
     setUbigeoSearch(text);
+    setFormData(prev => ({ ...prev, region: text }));
+    setShowUbigeos(true);
+    
+    latestUbigeoSearch.current = text;
+    
     if (text.length < 3) {
       setUbigeosData([]);
       return;
     }
-    const { data } = await supabase
+    
+    const cleanText = text.trim();
+    const words = cleanText.split(/[\s,/]+/).filter(w => w.length > 0);
+    
+    let query = supabase
       .from('ubigeos')
-      .select('distrito, provincia, departamento')
-      .ilike('distrito', `%${text}%`)
-      .limit(10);
-    setUbigeosData(data || []);
+      .select('distrito, provincia, departamento');
+
+    words.forEach(word => {
+      query = query.or(`distrito.ilike.%${word}%,provincia.ilike.%${word}%,departamento.ilike.%${word}%`);
+    });
+
+    const { data } = await query.limit(15);
+      
+    if (latestUbigeoSearch.current === text) {
+      setUbigeosData(data || []);
+    }
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -820,6 +914,43 @@ _Dirección de Admisión UNSAAC_`;
                         <input type="email" required value={formData.correo} onChange={e => setFormData({...formData, correo: e.target.value})} className="h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 font-medium text-sm outline-none focus:border-indigo-500 focus:bg-white transition-all" />
                     </label>
                     <label className="flex flex-col gap-1 col-span-2 relative">
+                        <span className="text-[10px] font-black text-slate-500 uppercase">Región / Departamento (Distrito)</span>
+                        <input 
+                          type="text" 
+                          value={ubigeoSearch} 
+                          onChange={e => searchUbigeos(e.target.value)} 
+                          onFocus={() => setShowUbigeos(true)}
+                          onBlur={() => setTimeout(() => setShowUbigeos(false), 200)}
+                          className="h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 font-medium text-sm outline-none focus:border-indigo-500 focus:bg-white transition-all" 
+                          placeholder="Buscar por distrito..."
+                        />
+                        {showUbigeos && ubigeosData.length > 0 && (
+                          <div 
+                            className="absolute top-full mt-1 w-full bg-white border border-slate-200 shadow-xl rounded-xl max-h-48 overflow-y-auto z-50 p-1"
+                            onMouseDown={(e) => e.preventDefault()}
+                          >
+                            {ubigeosData.map((u, i) => (
+                              <div 
+                                key={i} 
+                                className="px-4 py-2 hover:bg-slate-50 cursor-pointer rounded-lg transition-colors border-b border-slate-50 last:border-0"
+                                onClick={() => {
+                                  const text = `${u.departamento} / ${u.provincia} / ${u.distrito}`;
+                                  setUbigeoSearch(text);
+                                  setFormData({...formData, region: text});
+                                  setShowUbigeos(false);
+                                  
+                                  // Trigger a small refresh in school search context if needed
+                                  if (colegioSearch) searchColegios(colegioSearch);
+                                }}
+                              >
+                                <div className="font-bold text-slate-700 text-xs">{u.distrito}</div>
+                                <div className="text-[10px] text-slate-500">{u.provincia}, {u.departamento}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                    </label>
+                    <label className="flex flex-col gap-1 col-span-2 relative">
                         <span className="text-[10px] font-black text-slate-500 uppercase">Colegio de Procedencia</span>
                         <input 
                           type="text" 
@@ -831,19 +962,22 @@ _Dirección de Admisión UNSAAC_`;
                           placeholder="Escribe para buscar colegio..."
                         />
                         {showColegios && colegiosData.length > 0 && (
-                          <div className="absolute top-full mt-1 w-full bg-white border border-slate-200 shadow-xl rounded-xl max-h-48 overflow-y-auto z-50 p-1">
+                          <div 
+                            className="absolute top-full mt-1 w-full bg-white border border-slate-200 shadow-xl rounded-xl max-h-48 overflow-y-auto z-50 p-1"
+                            onMouseDown={(e) => e.preventDefault()}
+                          >
                             {colegiosData.map((c, i) => (
                               <div 
                                 key={i} 
                                 className="px-4 py-2 hover:bg-slate-50 cursor-pointer rounded-lg transition-colors border-b border-slate-50 last:border-0"
                                 onClick={() => {
                                   setColegioSearch(c.nombre_ie);
-                                  setFormData({...formData, colegio_procedencia: c.nombre_ie});
+                                  setFormData(prev => ({...prev, colegio_procedencia: c.nombre_ie}));
                                   setShowColegios(false);
                                 }}
                               >
                                 <div className="font-bold text-slate-700 text-xs">{c.nombre_ie}</div>
-                                <div className="text-[10px] text-slate-500">{c.codigo_modular} - {c.lugar}</div>
+                                <div className="text-[10px] text-slate-500">{c.codigo_modular} - {c.departamento_provincia_distrito}</div>
                               </div>
                             ))}
                           </div>
@@ -877,37 +1011,6 @@ _Dirección de Admisión UNSAAC_`;
                           <option value="">Seleccione una carrera (Opcional)</option>
                           {escuelasData.filter(c => formData.area_interes ? c.area === formData.area_interes.match(/Área ([A-Z])/)?.[1] : true).map(c => <option key={c.nombre} value={c.nombre}>{c.nombre}</option>)}
                         </select>
-                    </label>
-                    <label className="flex flex-col gap-1 col-span-2 relative">
-                        <span className="text-[10px] font-black text-slate-500 uppercase">Región / Departamento (Distrito)</span>
-                        <input 
-                          type="text" 
-                          value={ubigeoSearch} 
-                          onChange={e => searchUbigeos(e.target.value)} 
-                          onFocus={() => setShowUbigeos(true)}
-                          onBlur={() => setTimeout(() => setShowUbigeos(false), 200)}
-                          className="h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 font-medium text-sm outline-none focus:border-indigo-500 focus:bg-white transition-all" 
-                          placeholder="Buscar por distrito..."
-                        />
-                        {showUbigeos && ubigeosData.length > 0 && (
-                          <div className="absolute top-full mt-1 w-full bg-white border border-slate-200 shadow-xl rounded-xl max-h-48 overflow-y-auto z-50 p-1">
-                            {ubigeosData.map((u, i) => (
-                              <div 
-                                key={i} 
-                                className="px-4 py-2 hover:bg-slate-50 cursor-pointer rounded-lg transition-colors border-b border-slate-50 last:border-0"
-                                onClick={() => {
-                                  const text = `${u.departamento} / ${u.provincia} / ${u.distrito}`;
-                                  setUbigeoSearch(text);
-                                  setFormData({...formData, region: text});
-                                  setShowUbigeos(false);
-                                }}
-                              >
-                                <div className="font-bold text-slate-700 text-xs">{u.distrito}</div>
-                                <div className="text-[10px] text-slate-500">{u.provincia}, {u.departamento}</div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
                     </label>
                     <label className="flex flex-col gap-1">
                         <span className="text-[10px] font-black text-slate-500 uppercase">Estado</span>

@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { supabase } from './lib/supabaseClient';
 import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './pages/Dashboard';
 import { IncomingFiles } from './pages/IncomingFiles';
@@ -31,6 +32,33 @@ function App() {
   const [user, setUser] = useState<User | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+
+  useEffect(() => {
+    // Check active session on load
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        // Fetch the user's profile from the 'usuarios' table
+        supabase.from('usuarios').select('*').eq('id', session.user.id).maybeSingle()
+          .then(({ data }) => {
+            if (data) setUser(data as User);
+            setIsCheckingAuth(false);
+          });
+      } else {
+        setIsCheckingAuth(false);
+      }
+    });
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') {
+        setUser(null);
+      }
+    });
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
 
   const addToast = (message: string, type: ToastMessage['type'] = 'success') => {
     const id = Date.now().toString();
@@ -41,6 +69,10 @@ function App() {
   const removeToast = (id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id));
   };
+
+  if (isCheckingAuth) {
+    return <div className="flex h-screen items-center justify-center bg-slate-900"><span className="material-symbols-outlined animate-spin text-white text-4xl">progress_activity</span></div>;
+  }
 
   if (!user) {
     return (
@@ -60,7 +92,7 @@ function App() {
       <div className="flex h-screen w-full bg-[#f8fafc] overflow-hidden">
         <ChatBot />
         <ToastContainer toasts={toasts} onClose={removeToast} />
-        <Sidebar user={user} onLogout={() => { setUser(null); }} isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+        <Sidebar user={user} onLogout={async () => { setUser(null); await supabase.auth.signOut(); }} isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
         
         <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#f8fafc] relative">
           <header className="md:hidden flex items-center justify-between p-4 bg-white border-b border-slate-200 shrink-0">
