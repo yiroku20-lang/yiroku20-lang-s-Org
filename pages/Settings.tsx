@@ -384,9 +384,9 @@ CREATE TABLE IF NOT EXISTS public.usuarios (
 
 -- Habilitar RLS
 ALTER TABLE public.usuarios ENABLE ROW LEVEL SECURITY;
--- Permitir lectura solo si el usuario está logueado
+-- Permitir lectura pública temporalmente para no romper el login de otras apps
 DROP POLICY IF EXISTS "Acceso lectura usuarios" ON public.usuarios;
-CREATE POLICY "Acceso lectura usuarios" ON public.usuarios FOR SELECT USING (auth.role() = 'authenticated');
+CREATE POLICY "Acceso lectura usuarios" ON public.usuarios FOR SELECT USING (true);
 
 -- Aquí irían políticas más estrictas para INSERT/UPDATE/DELETE (e.g. solo Admin)
 -- Por ahora la aplicación usa la DB con el service role en varios lados o dejamos esto:
