@@ -463,6 +463,7 @@ ${bruto}
         config: {
           responseMimeType: "application/json",
           temperature: 0.3,
+          maxOutputTokens: 8192,
         }
       });
       
@@ -572,12 +573,49 @@ ${bruto}
       {/* Top Bar */}
       <style>{`
         @media print {
+          @page { size: auto; margin: 15mm; }
           body * { visibility: hidden; }
           #printable-acta, #printable-acta * { visibility: visible; }
-          #printable-acta { position: absolute; left: 0; top: 0; width: 100%; }
+          
+          /* Hide all UI elements that take up space */
+          aside, header, nav, button, .print\\:hidden { display: none !important; }
+          
+          /* Break out of all scrollable / fixed height containers */
+          html, body, #root {
+            height: auto !important;
+            min-height: auto !important;
+            overflow: visible !important;
+            position: static !important;
+          }
+
+          /* Extremely important to let containers flow */
+          .overflow-hidden, .overflow-y-auto, .flex, .grid, .absolute, .inset-0, .h-full, .h-screen, .flex-1, main, section, div {
+            overflow: visible !important;
+            height: auto !important;
+            min-height: auto !important;
+            max-height: none !important;
+            page-break-inside: auto !important;
+          }
+          
+          #printable-acta {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            max-width: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: none !important;
+            box-shadow: none !important;
+            background: white !important;
+            display: block !important;
+          }
+
+          /* Ensure text area expands and shows full content */
+          #preview-textarea { display: none !important; }
         }
       `}</style>
-      <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between shrink-0">
+      <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between shrink-0 print:hidden">
         <button onClick={onBack} className="flex items-center text-slate-500 hover:text-slate-700 font-medium">
           <ArrowLeft className="w-5 h-5 mr-1" />
           Volver
@@ -637,7 +675,7 @@ ${bruto}
                 </div>
                 <div className="flex gap-2 relative">
                   <button onClick={handlePrint} className="flex items-center px-4 py-2 bg-slate-100 text-slate-700 font-medium rounded-lg hover:bg-slate-200 transition">
-                    <Printer className="w-4 h-4 mr-2" /> Imprimir
+                    <Printer className="w-4 h-4 mr-2" /> Descargar PDF
                   </button>
                   {acta?.id && (
                     <label className="flex items-center px-4 py-2 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 transition cursor-pointer">
