@@ -31,6 +31,7 @@ export const Settings: React.FC<{ user: User, notify?: (msg: string, type?: 'suc
     { id: 'view_orientacion', label: 'Marketing y Prospectos' },
     { id: 'view_plantillas', label: 'Gestión de Plantillas' },
     { id: 'view_resoluciones', label: 'Resoluciones' },
+    { id: 'view_actas', label: 'Actas de Sesión' },
     { id: 'view_asistencia', label: 'Control de Asistencia' },
     { id: 'view_prestamos', label: 'Préstamo de Bienes' },
     { id: 'view_agenda', label: 'Agenda de Eventos' },
@@ -153,6 +154,29 @@ export const Settings: React.FC<{ user: User, notify?: (msg: string, type?: 'suc
       }
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const runMigration = async (sqlText: string) => {
+    if (!window.confirm('¿Ejecutar este script en el servidor?')) return;
+    setIsRestoring(true);
+    try {
+      const { error } = await supabase.rpc('execute_sql', { sql_query: sqlText });
+      
+      if (error) {
+        if (error.message.includes('No function matches') || error.message.includes('execute_sql does not exist')) {
+          notify?.('No se puede ejecutar desde aquí porque Supabase no tiene la función RPC "execute_sql" habilitada por razones de seguridad. Usa el botón "Copiar" y pégalo en el SQL Editor de Supabase (https://supabase.com/dashboard).', 'error');
+        } else {
+          throw error;
+        }
+      } else {
+        notify?.('Script ejecutado con éxito.', 'success');
+      }
+    } catch (err: any) {
+      console.error(err);
+      notify?.('Debes ejecutar el script manualmente en Supabase: ' + err.message, 'error');
+    } finally {
+      setIsRestoring(false);
     }
   };
 
@@ -369,6 +393,45 @@ export const Settings: React.FC<{ user: User, notify?: (msg: string, type?: 'suc
     setRole('Operador');
     setPermissions([]);
   };
+
+  const sqlActas = `
+-- ACTAS DE SESIONES
+CREATE TABLE IF NOT EXISTS public.actas_sesiones (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  created_at timestamp with time zone DEFAULT now(),
+  numero text,
+  fecha date NOT NULL,
+  titulo text NOT NULL,
+  tipo_sesion text NOT NULL,
+  estado text DEFAULT 'Borrador',
+  contenido_bruto text,
+  contenido_refinado text,
+  archivo_pdf text,
+  firmantes jsonb DEFAULT '[]'::jsonb,
+  created_by uuid REFERENCES auth.users(id)
+);
+
+ALTER TABLE public.actas_sesiones ADD COLUMN IF NOT EXISTS archivo_pdf text;
+
+NOTIFY pgrst, 'reload schema';
+
+ALTER TABLE public.actas_sesiones ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Permitir select actas" ON public.actas_sesiones;
+CREATE POLICY "Permitir select actas" ON public.actas_sesiones FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Permitir insert actas" ON public.actas_sesiones;
+CREATE POLICY "Permitir insert actas" ON public.actas_sesiones FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Permitir update actas" ON public.actas_sesiones;
+CREATE POLICY "Permitir update actas" ON public.actas_sesiones FOR UPDATE USING (auth.role() = 'authenticated');
+
+-- Storage Bucket para actas
+INSERT INTO storage.buckets (id, name, public) VALUES ('documentos', 'documentos', true) ON CONFLICT (id) DO NOTHING;
+DROP POLICY IF EXISTS "Permitir leer documentos" ON storage.objects;
+CREATE POLICY "Permitir leer documentos" ON storage.objects FOR SELECT USING ( bucket_id = 'documentos' );
+DROP POLICY IF EXISTS "Permitir subir documentos" ON storage.objects;
+CREATE POLICY "Permitir subir documentos" ON storage.objects FOR INSERT WITH CHECK ( bucket_id = 'documentos' AND auth.role() = 'authenticated' );
+DROP POLICY IF EXISTS "Permitir actualizar documentos" ON storage.objects;
+CREATE POLICY "Permitir actualizar documentos" ON storage.objects FOR UPDATE USING ( bucket_id = 'documentos' AND auth.role() = 'authenticated' );
+`.trim();
 
   const sqlUsers = `
 -- TABLA DE USUARIOS Y ACCESO
@@ -768,6 +831,30 @@ VALUES
             <div className="bg-black/50 rounded-lg p-3 relative group">
               <button onClick={() => { navigator.clipboard.writeText(sqlTemplates); notify?.('Script de plantillas copiado.', 'success'); }} className="absolute top-2 right-2 bg-white/10 hover:bg-white/20 text-white text-[10px] px-2 py-1 rounded">Copiar</button>
               <code className="text-[9px] font-mono text-blue-400 whitespace-pre block overflow-x-auto h-40 scrollbar-thin scrollbar-thumb-blue-900">{sqlTemplates}</code>
+            </div>
+          </div>
+
+          <div className="bg-slate-900 rounded-2xl p-6 shadow-xl">
+            <h3 className="text-white font-bold mb-4 flex items-center gap-2 text-sm">
+              <span className="material-symbols-outlined text-purple-400">gavel</span>
+              Script de Actas de Sesiones
+            </h3>
+            <p className="text-xs text-slate-400 mb-4 tracking-wide leading-relaxed">
+              Base de datos para almacenar actas en borrador, refinadas y firmadas, así como el repositorio de PDF. Copia este script o ejecútalo vía API si tienes los permisos y tokens configurados.
+            </p>
+
+            <button 
+              onClick={() => runMigration(sqlActas)}
+              disabled={isRestoring}
+              className="mb-4 w-full bg-purple-600/20 hover:bg-purple-600/40 text-purple-400 border border-purple-500/30 rounded-lg p-3 text-xs font-bold font-mono text-left flex items-center gap-2 transition"
+            >
+              <span className="material-symbols-outlined text-sm">{isRestoring ? 'progress_activity' : 'auto_fix_high'}</span>
+              {isRestoring ? 'CREANDO...' : 'CREAR TABLAS (VÍA API)'}
+            </button>
+
+            <div className="bg-black/50 rounded-lg p-3 relative group">
+              <button onClick={() => { navigator.clipboard.writeText(sqlActas); notify?.('Script de actas copiado.', 'success'); }} className="absolute top-2 right-2 bg-white/10 hover:bg-white/20 text-white text-[10px] px-2 py-1 rounded">Copiar</button>
+              <code className="text-[9px] font-mono text-purple-400 whitespace-pre block overflow-x-auto h-40 scrollbar-thin scrollbar-thumb-purple-900">{sqlActas}</code>
             </div>
           </div>
         </div>

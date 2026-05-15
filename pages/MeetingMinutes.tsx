@@ -62,15 +62,24 @@ const AutoridadesTab: React.FC<Props> = ({ notify }) => {
   const [search, setSearch] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   
+  // For Add Modal
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<PersonalDirectorio[]>([]);
+  const [selectedPerson, setSelectedPerson] = useState<PersonalDirectorio | null>(null);
+
   // Forms
   const [titulo, setTitulo] = useState('');
   const [cargo, setCargo] = useState('');
+  const [correo, setCorreo] = useState('');
+  const [telefono, setTelefono] = useState('');
 
   const fetchAutoridades = async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from('personal_directorio')
       .select('*')
+      .not('cargo_actual', 'is', null) // Only fetch people that we've designated as an authority (have a role)
       .order('nombre');
     if (!error && data) {
       setAutoridades(data);
@@ -78,20 +87,44 @@ const AutoridadesTab: React.FC<Props> = ({ notify }) => {
     setLoading(false);
   };
 
+  const searchDirectory = async (q: string) => {
+    setSearchQuery(q);
+    if (!q) {
+      setSearchResults([]);
+      return;
+    }
+    const { data } = await supabase
+      .from('personal_directorio')
+      .select('*')
+      .ilike('nombre', `%${q}%`)
+      .limit(10);
+    setSearchResults(data || []);
+  };
+
   useEffect(() => {
     fetchAutoridades();
   }, []);
 
-  const handleSave = async (id: string) => {
+  const handleSave = async (id: string, remove: boolean = false) => {
     try {
+      const payload = remove 
+        ? { titulo_academico: null, cargo_actual: null } 
+        : { titulo_academico: titulo, cargo_actual: cargo, correo: correo, telefono: telefono };
+        
       const { error } = await supabase
         .from('personal_directorio')
-        .update({ titulo_academico: titulo, cargo_actual: cargo })
+        .update(payload)
         .eq('id', id);
 
       if (error) throw error;
-      notify?.('Autoridad actualizada correctamente.', 'success');
+      notify?.(remove ? 'Autoridad removida.' : (showAddModal ? 'Autoridad agregada.' : 'Autoridad actualizada.'), 'success');
       setEditingId(null);
+      if (showAddModal) {
+        setShowAddModal(false);
+        setSelectedPerson(null);
+        setSearchQuery('');
+        setSearchResults([]);
+      }
       fetchAutoridades();
     } catch (err) {
       console.error(err);
@@ -103,6 +136,8 @@ const AutoridadesTab: React.FC<Props> = ({ notify }) => {
     setEditingId(person.id);
     setTitulo(person.titulo_academico || '');
     setCargo(person.cargo_actual || '');
+    setCorreo(person.correo || '');
+    setTelefono(person.telefono || '');
   };
 
   const filtered = autoridades.filter(a => 
@@ -111,35 +146,48 @@ const AutoridadesTab: React.FC<Props> = ({ notify }) => {
   );
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-      <div className="p-4 border-b border-slate-200 bg-slate-50 flex gap-4">
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col relative h-[600px]">
+      <div className="p-4 border-b border-slate-200 bg-slate-50 flex gap-4 items-center">
         <div className="relative flex-1">
           <Search className="w-5 h-5 absolute left-3 top-2.5 text-slate-400" />
           <input
             type="text"
-            placeholder="Buscar por apellidos o cargo..."
+            placeholder="Buscar autoridades agregadas..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
           />
         </div>
+        <button 
+          onClick={() => {
+            setShowAddModal(true);
+            setSearchQuery('');
+            setSearchResults([]);
+            setSelectedPerson(null);
+          }}
+          className="flex items-center px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition"
+        >
+          <Plus className="w-4 h-4 mr-2" /> Agregar Autoridad
+        </button>
       </div>
-      <div className="overflow-x-auto">
+      
+      <div className="overflow-x-auto flex-1">
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 text-sm">
               <th className="p-4 font-semibold">Nombre Completo</th>
               <th className="p-4 font-semibold">DNI</th>
               <th className="p-4 font-semibold">Tít. Académico</th>
-              <th className="p-4 font-semibold">Cargo Actual</th>
+              <th className="p-4 font-semibold">Cargo de Autoridad</th>
+              <th className="p-4 font-semibold">Contacto</th>
               <th className="p-4 font-semibold text-right">Acciones</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {loading ? (
-              <tr><td colSpan={5} className="p-8 text-center text-slate-500">Cargando autoridades...</td></tr>
+              <tr><td colSpan={6} className="p-8 text-center text-slate-500">Cargando autoridades...</td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={5} className="p-8 text-center text-slate-500">No se encontraron resultados.</td></tr>
+              <tr><td colSpan={6} className="p-8 text-center text-slate-500">No hay autoridades agregadas al directorio. Usa el botón "Agregar Autoridad" para incluirlas.</td></tr>
             ) : (
               filtered.map(person => (
                 <tr key={person.id} className="hover:bg-slate-50 transition-colors">
@@ -151,7 +199,7 @@ const AutoridadesTab: React.FC<Props> = ({ notify }) => {
                         type="text" 
                         value={titulo} 
                         onChange={e => setTitulo(e.target.value)}
-                        placeholder="Ej. Dr., Mg."
+                        placeholder="Ej. Dr."
                         className="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 text-sm"
                       />
                     ) : (
@@ -164,29 +212,60 @@ const AutoridadesTab: React.FC<Props> = ({ notify }) => {
                         type="text" 
                         value={cargo} 
                         onChange={e => setCargo(e.target.value)}
-                        placeholder="Ej. Rector, Director"
+                        placeholder="Ej. Rector"
                         className="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 text-sm"
                       />
                     ) : (
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${person.cargo_actual ? 'bg-blue-100 text-blue-700' : 'text-slate-400'}`}>
-                        {person.cargo_actual || 'Sin cargo asignado'}
+                      <span className={`px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-700`}>
+                        {person.cargo_actual}
                       </span>
                     )}
                   </td>
-                  <td className="p-4 text-right">
+                  <td className="p-4">
                     {editingId === person.id ? (
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="flex flex-col gap-1">
+                        <input 
+                          type="email" 
+                          value={correo} 
+                          onChange={e => setCorreo(e.target.value)}
+                          placeholder="Correo"
+                          className="w-full p-1 border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 text-xs"
+                        />
+                        <input 
+                          type="text" 
+                          value={telefono} 
+                          onChange={e => setTelefono(e.target.value)}
+                          placeholder="Teléfono"
+                          className="w-full p-1 border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 text-xs"
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-0.5 text-xs text-slate-500 whitespace-nowrap">
+                        {person.correo && <div className="flex items-center gap-1"><span className="material-symbols-outlined text-[14px]">mail</span> {person.correo}</div>}
+                        {person.telefono && <div className="flex items-center gap-1"><span className="material-symbols-outlined text-[14px]">call</span> {person.telefono}</div>}
+                        {!person.correo && !person.telefono && <span>-</span>}
+                      </div>
+                    )}
+                  </td>
+                  <td className="p-4 text-right flex items-center justify-end gap-2">
+                    {editingId === person.id ? (
+                      <>
                         <button onClick={() => setEditingId(null)} className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-200">
                           <X className="w-5 h-5" />
                         </button>
-                        <button onClick={() => handleSave(person.id)} className="p-2 text-indigo-600 hover:text-indigo-700 rounded-lg hover:bg-indigo-50">
+                        <button onClick={() => handleSave(person.id, false)} className="p-2 text-indigo-600 hover:text-indigo-700 rounded-lg hover:bg-indigo-50">
                           <CheckCircle className="w-5 h-5" />
                         </button>
-                      </div>
+                      </>
                     ) : (
-                      <button onClick={() => startEdit(person)} className="p-2 text-slate-400 hover:text-indigo-600 rounded-lg hover:bg-indigo-50 transition-colors">
-                        <Edit className="w-5 h-5" />
-                      </button>
+                      <>
+                        <button onClick={() => startEdit(person)} className="p-2 text-slate-400 hover:text-indigo-600 rounded-lg hover:bg-indigo-50 transition-colors" title="Editar carga de autoridad">
+                          <Edit className="w-5 h-5" />
+                        </button>
+                        <button onClick={() => { if(window.confirm('¿Remover autoridad de la lista? No borrará a la persona del directorio general.')) handleSave(person.id, true) }} className="p-2 text-slate-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors" title="Remover de Autoridades">
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </>
                     )}
                   </td>
                 </tr>
@@ -195,6 +274,128 @@ const AutoridadesTab: React.FC<Props> = ({ notify }) => {
           </tbody>
         </table>
       </div>
+
+      {showAddModal && (
+        <div className="absolute inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full flex flex-col max-h-full">
+            <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50 rounded-t-xl">
+              <h3 className="font-semibold text-slate-800">Agregar Autoridad</h3>
+              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 overflow-y-auto">
+              {!selectedPerson ? (
+                <>
+                  <p className="text-sm text-slate-600 mb-4">Busca a la persona en el directorio general de la universidad para designarla como Autoridad.</p>
+                  <div className="relative mb-4">
+                    <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+                    <input 
+                      type="text" 
+                      placeholder="Buscar por nombres o apellidos..."
+                      value={searchQuery}
+                      onChange={e => searchDirectory(e.target.value)}
+                      className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                  {searchQuery && searchResults.length > 0 && (
+                    <div className="border border-slate-200 rounded-lg overflow-hidden divide-y divide-slate-100">
+                      {searchResults.map(p => (
+                        <div key={p.id} className="p-3 bg-white hover:bg-slate-50 flex justify-between items-center">
+                          <div>
+                            <div className="font-medium text-slate-800 text-sm">{p.nombre}</div>
+                            <div className="text-xs text-slate-500">DNI: {p.dni}</div>
+                          </div>
+                          <button 
+                            onClick={() => {
+                               setSelectedPerson(p);
+                               setTitulo(p.titulo_academico || '');
+                               setCargo(p.cargo_actual || '');
+                               setCorreo(p.correo || '');
+                               setTelefono(p.telefono || '');
+                            }} 
+                            className="text-xs px-3 py-1.5 bg-indigo-50 text-indigo-700 font-medium rounded hover:bg-indigo-100"
+                          >
+                            Seleccionar
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {searchQuery && searchResults.length === 0 && (
+                    <div className="text-sm text-slate-500 p-4 text-center">No se encontraron resultados en el directorio de la universidad.</div>
+                  )}
+                </>
+              ) : (
+                <div className="space-y-4">
+                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex justify-between">
+                     <div>
+                        <div className="font-semibold text-slate-800 text-sm">{selectedPerson.nombre}</div>
+                        <div className="text-xs text-slate-500">DNI: {selectedPerson.dni}</div>
+                     </div>
+                     <button onClick={() => setSelectedPerson(null)} className="text-xs text-indigo-600 hover:underline">Cambiar persona</button>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Título Académico</label>
+                    <input 
+                      type="text" 
+                      value={titulo}
+                      onChange={e => setTitulo(e.target.value)}
+                      placeholder="Ej. Dr., Mg., Ing."
+                      className="w-full p-2 border border-slate-300 rounded-md outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Cargo a Designar *</label>
+                    <input 
+                      type="text" 
+                      value={cargo}
+                      onChange={e => setCargo(e.target.value)}
+                      placeholder="Ej. Director de Admisión"
+                      className="w-full p-2 border border-slate-300 rounded-md outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">Este cargo aparecerá en sus firmas de actas.</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Correo Electrónico</label>
+                      <input 
+                        type="email" 
+                        value={correo}
+                        onChange={e => setCorreo(e.target.value)}
+                        placeholder="ejemplo@unsaac.edu.pe"
+                        className="w-full p-2 border border-slate-300 rounded-md outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Teléfono</label>
+                      <input 
+                        type="text" 
+                        value={telefono}
+                        onChange={e => setTelefono(e.target.value)}
+                        placeholder="Ej. 987654321"
+                        className="w-full p-2 border border-slate-300 rounded-md outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            {selectedPerson && (
+               <div className="p-4 border-t border-slate-200 bg-slate-50 rounded-b-xl flex justify-end gap-2">
+                 <button onClick={() => setShowAddModal(false)} className="px-4 py-2 text-slate-600 hover:text-slate-800 font-medium">Cancelar</button>
+                 <button 
+                   onClick={() => handleSave(selectedPerson.id, false)} 
+                   disabled={!cargo.trim()}
+                   className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                 >
+                   Guardar y Agregar
+                 </button>
+               </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -334,6 +535,31 @@ const ActaEditor: React.FC<ActaEditorProps> = ({ acta, onBack, notify, user }) =
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
+    if (!acta && !numero) {
+      const fetchNextNumero = async () => {
+        const { data, error } = await supabase
+          .from('actas_sesiones')
+          .select('numero')
+          .order('created_at', { ascending: false })
+          .limit(1);
+        
+        if (data && data.length > 0 && data[0].numero) {
+          const lastNum = data[0].numero;
+          const match = lastNum.match(/^(\d+)(.*)/);
+          if (match) {
+            const nextNum = parseInt(match[1], 10) + 1;
+            const paddedNum = nextNum.toString().padStart(match[1].length, '0');
+            setNumero(`${paddedNum}${match[2]}`);
+          }
+        } else {
+          setNumero(`001-${new Date().getFullYear()}`);
+        }
+      };
+      fetchNextNumero();
+    }
+  }, [acta, numero]);
+
+  useEffect(() => {
     const fetchAutoridades = async () => {
       const { data } = await supabase.from('personal_directorio').select('*').order('nombre');
       if (data) setAutoridades(data);
@@ -449,7 +675,7 @@ Tu tarea es reescribir el borrador provisto usando un lenguaje formal, pulcro y 
 
 REGLAS CRÍTICAS / DE CARÁCTER OBLIGATORIO:
 1. NO RESUMAS ni omitas información. Mantén TODOS los acuerdos, debates y detalles mencionados. Extiende la redacción formalizando todo el contenido.
-2. Devuelve ESTRICTAMENTE un JSON con este formato: {"titulo_sugerido": "...", "contenido_redactado": "..."}
+2. Devuelve ESTRICTAMENTE un JSON con este formato: {"titulo_sugerido": "...", "contenido_redactado": "..."} donde "titulo_sugerido" es UN ASUNTO CORTO (e.g., "PRÉSTAMO DE EQUIPOS AL CEPRU", SIN incluir la frase "Acta de sesión...").
 3. NO incluyas NINGÚN tipo de saludo, introducción o texto fuera del JSON. Ni formato markdown \`\`\`json.
 4. Las declaraciones entre comillas dobles (" ") son Citas Exactas. Mantenlas literalmente en el texto final.
 
@@ -524,6 +750,71 @@ ${bruto}
   
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleSendEmail = async () => {
+    // Collect emails from actual firmantes
+    const recipients = firmantes
+      .map(f => {
+        const aut = autoridades.find(a => a.id === f.id);
+        return aut ? { email: aut.correo, nombre: aut.nombre } : null;
+      })
+      .filter(r => r && r.email && r.nombre);
+
+    if (recipients.length === 0) {
+      notify?.('No hay correos registrados entre los firmantes de esta acta.', 'warning');
+      return;
+    }
+    
+    if (!acta?.archivo_pdf) {
+      notify?.('Sube el PDF firmado primero.', 'warning');
+      return;
+    }
+
+    try {
+      notify?.('Enviando correos, por favor espera...', 'info');
+
+      for (const r of recipients) {
+        if (!r) continue;
+        const response = await fetch('/api/send-email', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            to: r.email,
+            subject: `Acta de Sesión: ${acta.titulo || 'Sin Asunto'}`,
+            html: `
+              <div style="font-family: sans-serif; padding: 20px;">
+                <h2 style="color: #7b1523;">Dirección de Admisión UNSAAC</h2>
+                <p>Estimado(a) <strong>${r.nombre}</strong>,</p>
+                <p>Se le hace entrega del Acta de Sesión correspondiente a:</p>
+                <div style="background: #f8fafc; padding: 15px; border-left: 4px solid #7b1523; margin: 20px 0;">
+                  <strong>Sesión:</strong> ${tipo}<br/>
+                  <strong>Asunto:</strong> ${acta.titulo || 'Sin Asunto'}<br/>
+                  <strong>Fecha:</strong> ${new Date(fecha).toLocaleDateString('es-PE')}
+                </div>
+                <p>Puede visualizar y descargar el documento PDF firmado ingresando al siguiente enlace de nuestro repositorio institucional:</p>
+                <div style="margin: 20px 0;">
+                  <a href="${acta.archivo_pdf}" target="_blank" style="background-color: #7b1523; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Ver Acta PDF</a>
+                </div>
+                <p>Atentamente,<br/><strong>Dirección de Admisión UNSAAC</strong></p>
+              </div>
+            `
+          })
+        });
+
+        if (!response.ok) {
+           const errData = await response.json();
+           throw new Error(errData.error || 'Error desconocido del servidor.');
+        }
+      }
+
+      notify?.('Correos enviados satisfactoriamente.', 'success');
+    } catch(err: any) {
+      console.error(err);
+      notify?.('Error al enviar los correos: ' + err.message, 'error');
+    }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -622,32 +913,38 @@ ${bruto}
         </button>
         <div className="flex flex-1 justify-center items-center gap-4">
           <button 
-            onClick={() => setShowMetadataModal(true)} 
-            className="flex flex-col items-center group cursor-pointer"
+            onClick={() => {
+              if (estado !== 'Cerrada') setShowMetadataModal(true);
+            }} 
+            className={`flex flex-col items-center group transition-colors ${estado === 'Cerrada' ? 'cursor-default' : 'cursor-pointer'}`}
           >
-            <span className="text-sm font-bold text-slate-800 group-hover:text-indigo-600 transition-colors">
+            <span className={`text-sm font-bold text-slate-800 ${estado !== 'Cerrada' ? 'group-hover:text-indigo-600' : ''}`}>
               {titulo || 'Acta Nueva'}
             </span>
-            <span className="text-xs text-slate-500 group-hover:text-indigo-500">
+            <span className={`text-xs text-slate-500 ${estado !== 'Cerrada' ? 'group-hover:text-indigo-500' : ''}`}>
               {numero ? `Nro. ${numero}` : 'Sin número'} · {tipo}
             </span>
           </button>
         </div>
         <div className="flex gap-2">
-          <button 
-            onClick={() => setPreviewMode(!previewMode)}
-            className={`flex items-center px-4 py-2 font-medium rounded-lg transition ${previewMode ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
-          >
-            {previewMode ? <Edit className="w-5 h-5 mr-2" /> : <Eye className="w-5 h-5 mr-2" />}
-            {previewMode ? 'Modo Edición' : 'Vista Previa'}
-          </button>
-          <button 
-            onClick={handleSave}
-            className="flex items-center px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition"
-          >
-            <Save className="w-5 h-5 mr-2" />
-            Guardar
-          </button>
+          {estado !== 'Cerrada' && (
+            <button 
+              onClick={() => setPreviewMode(!previewMode)}
+              className={`flex items-center px-4 py-2 font-medium rounded-lg transition ${previewMode ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+            >
+              {previewMode ? <Edit className="w-5 h-5 mr-2" /> : <Eye className="w-5 h-5 mr-2" />}
+              {previewMode ? 'Modo Edición' : 'Vista Previa'}
+            </button>
+          )}
+          {estado !== 'Cerrada' && (
+            <button 
+              onClick={handleSave}
+              className="flex items-center px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition"
+            >
+              <Save className="w-5 h-5 mr-2" />
+              Guardar
+            </button>
+          )}
         </div>
       </div>
       
@@ -658,9 +955,9 @@ ${bruto}
           {previewMode ? (
             <div className="flex flex-col gap-4 mx-auto max-w-4xl w-full">
               {/* Preview Action Bar */}
-              <div className="bg-white border border-slate-200 shadow-sm p-3 rounded-xl flex justify-between items-center print:hidden">
-                <div className="flex gap-2">
-                  <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
+              <div className="bg-white border border-slate-200 shadow-sm p-3 md:p-4 rounded-xl flex flex-wrap justify-between items-center gap-4 print:hidden">
+                <div className="flex flex-wrap items-center gap-2 md:gap-3">
+                  <span className={`px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider ${
                     estado === 'Cerrada' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
                     estado === 'Refinada' ? 'bg-indigo-100 text-indigo-800 border border-indigo-200' :
                     'bg-slate-100 text-slate-800 border border-slate-200'
@@ -668,19 +965,24 @@ ${bruto}
                     {estado}
                   </span>
                   {acta?.archivo_pdf && (
-                      <a href={acta.archivo_pdf} target="_blank" rel="noreferrer" className="flex items-center gap-1 px-3 py-1 bg-red-50 text-red-700 border border-red-200 rounded-full text-xs font-bold uppercase hover:bg-red-100 transition">
-                        <Download className="w-3 h-3" /> Ver PDF Firmado
+                      <a href={acta.archivo_pdf} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-700 border border-red-200 rounded-lg text-xs font-bold uppercase tracking-wide hover:bg-red-100 transition">
+                        <Download className="w-3.5 h-3.5" /> Ver PDF Firmado
                       </a>
                   )}
                 </div>
-                <div className="flex gap-2 relative">
-                  <button onClick={handlePrint} className="flex items-center px-4 py-2 bg-slate-100 text-slate-700 font-medium rounded-lg hover:bg-slate-200 transition">
+                <div className="flex flex-wrap items-center gap-2 md:gap-3">
+                  {estado === 'Cerrada' && (
+                    <button onClick={handleSendEmail} className="flex items-center px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm rounded-lg transition shadow-sm">
+                      <span className="material-symbols-outlined text-[18px] mr-2">send</span> Enviar a Firmantes
+                    </button>
+                  )}
+                  <button onClick={handlePrint} className="flex items-center px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-sm rounded-lg transition shadow-sm border border-slate-200">
                     <Printer className="w-4 h-4 mr-2" /> Descargar PDF
                   </button>
                   {acta?.id && (
-                    <label className="flex items-center px-4 py-2 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 transition cursor-pointer">
+                    <label className="flex items-center px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-sm rounded-lg transition shadow-sm cursor-pointer border border-emerald-700">
                       <UploadCloud className="w-4 h-4 mr-2" /> 
-                      {acta.archivo_pdf ? 'Actualizar PDF Firmado' : 'Subir PDF Firmado'}
+                      {acta.archivo_pdf ? 'Actualizar PDF' : 'Subir Firmado'}
                       <input type="file" accept="application/pdf" className="hidden" onChange={handleFileUpload} />
                     </label>
                   )}
@@ -693,12 +995,13 @@ ${bruto}
                 {/* Header UNSAAC-like */}
                 <div className="w-full text-center border-b-[2px] border-slate-300 pb-8 mb-10">
                   <h1 className="text-xl md:text-2xl font-bold uppercase tracking-[0.15em] text-[#7B1E32]">Universidad Nacional de San Antonio Abad del Cusco</h1>
-                  <h2 className="text-md md:text-lg font-semibold uppercase tracking-widest text-slate-600 mt-2">Directorio de Admisión</h2>
+                  <h2 className="text-md md:text-lg font-semibold uppercase tracking-widest text-slate-600 mt-2">Dirección de Admisión</h2>
                 </div>
 
                 <div className="w-full text-center mb-10">
-                  <h3 className="text-2xl font-bold uppercase tracking-wide px-4">{titulo || 'ACTA DE SESIÓN'}</h3>
-                  <div className="text-sm font-bold text-slate-500 mt-4 uppercase tracking-widest border border-slate-300 inline-block px-4 py-2 rounded-sm bg-slate-50">
+                  <h3 className="text-2xl font-bold uppercase tracking-wide px-4">ACTA DE SESIÓN</h3>
+                  <h4 className="text-lg font-semibold uppercase tracking-wide text-slate-700 mt-3 px-8 leading-snug">{titulo || 'ASUNTO NO ESPECIFICADO'}</h4>
+                  <div className="text-sm font-bold text-slate-500 mt-6 uppercase tracking-widest border border-slate-300 inline-block px-4 py-2 rounded-sm bg-slate-50">
                     Sesión {tipo} — Nro. {numero || 'S/N'} — Fecha: {new Date(fecha).toLocaleDateString('es-PE', { day: 'numeric', month: 'long', year: 'numeric'})}
                   </div>
                 </div>
@@ -890,7 +1193,7 @@ Citas textuales entre comillas: "..."'
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-1.5">Tipo de Sesión</label>
                   <select 
@@ -900,18 +1203,6 @@ Citas textuales entre comillas: "..."'
                   >
                     <option value="Ordinaria">Ordinaria</option>
                     <option value="Extraordinaria">Extraordinaria</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1.5">Estado Inicial</label>
-                  <select 
-                    value={estado} 
-                    onChange={e => setEstado(e.target.value)} 
-                    className="w-full p-2.5 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
-                  >
-                    <option value="Borrador">Borrador</option>
-                    <option value="Refinada">Refinada</option>
-                    <option value="Cerrada">Cerrada</option>
                   </select>
                 </div>
               </div>
