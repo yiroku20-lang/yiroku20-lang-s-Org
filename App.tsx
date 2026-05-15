@@ -23,6 +23,7 @@ import { Settings } from './pages/Settings';
 import { DataCleanup } from './pages/DataCleanup';
 import { StaffManagement } from './pages/StaffManagement';
 import { StaffConfirmation } from './pages/StaffConfirmation';
+import { MeetingMinutes } from './pages/MeetingMinutes';
 import { Login } from './pages/Login';
 import { ChatBot } from './components/ChatBot';
 import { ToastContainer } from './components/Toast';
@@ -136,6 +137,9 @@ function App() {
               )}
               {(user.role === 'Administrador' || (user.role === 'Operador' && user.permissions?.includes('view_asistencia'))) && (
                 <Route path="/attendance" element={<Attendance user={user} notify={addToast} />} />
+              )}
+              {(user.role === 'Administrador' || user.role === 'Director' || (user.role === 'Operador' && user.permissions?.includes('view_actas'))) && (
+                <Route path="/actas" element={<MeetingMinutes user={user} notify={addToast} />} />
               )}
               {/* Agenda / Calendario */}
               {(user.role === 'Administrador' || (user.role === 'Operador' && user.permissions?.includes('view_agenda'))) && (

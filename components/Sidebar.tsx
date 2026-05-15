@@ -23,6 +23,7 @@ const navItems: (NavItem & { permission?: string })[] = [
   { label: 'Préstamo de Bienes', icon: 'devices', path: '/loans', permission: 'view_prestamos' },
   { label: 'Gestión Plantillas', icon: 'article', path: '/templates', roles: ['Administrador'], permission: 'view_plantillas' },
   { label: 'Resoluciones', icon: 'gavel', path: '/resolutions', permission: 'view_resoluciones' },
+  { label: 'Actas de Sesiones', icon: 'history_edu', path: '/actas', roles: ['Administrador', 'Director'], permission: 'view_actas' },
   { label: 'Agenda de Eventos', icon: 'calendar_today', path: '/calendar', permission: 'view_agenda' },
   { label: 'Control Asistencia', icon: 'fingerprint', path: '/attendance', permission: 'view_asistencia' },
   { label: 'Auditoría y Logs', icon: 'bar_chart', path: '/logs', roles: ['Administrador'], permission: 'view_auditoria' },

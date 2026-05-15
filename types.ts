@@ -316,7 +316,31 @@ export interface PersonalDirectorio {
   escuela_profesional?: string;
   correo?: string;
   telefono?: string;
+  titulo_academico?: string;
+  cargo_actual?: string;
   created_at: string;
+}
+
+export interface ActaSesion {
+  id: string;
+  numero: string | null;
+  fecha: string;
+  titulo: string;
+  tipo_sesion: 'Ordinaria' | 'Extraordinaria' | string;
+  estado: 'Borrador' | 'Refinada' | 'Cerrada';
+  contenido_bruto: string | null;
+  contenido_refinado: string | null;
+  archivo_pdf?: string | null;
+  firmantes: ActaFirmante[];
+  created_by?: string;
+  created_at: string;
+}
+
+export interface ActaFirmante {
+  id: string; // ID del personal
+  nombre_formateado: string;
+  cargo: string;
+  firmado?: boolean;
 }
 
 export interface PersonalProceso {
