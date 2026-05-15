@@ -467,7 +467,7 @@ ${bruto}
 `;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3.1-pro-preview',
+        model: 'gemini-2.5-flash',
         contents: promptText
       });
       
@@ -488,9 +488,13 @@ ${bruto}
       setEstado('Refinada');
       notify?.('Contenido refinado con éxito.', 'success');
       setPreviewMode(true); // Switch to preview automatically
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      notify?.('Error al conectar con la IA.', 'error');
+      if (error?.status === 429 || error?.message?.includes('429') || error?.message?.includes('quota')) {
+        notify?.('Límite de uso excedido (Error 429). Por favor, intenta de nuevo más tarde.', 'error');
+      } else {
+        notify?.('Error al conectar con la IA.', 'error');
+      }
     }
     setLoadingAI(false);
   };
