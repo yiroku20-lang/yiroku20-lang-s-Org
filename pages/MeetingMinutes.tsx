@@ -341,17 +341,7 @@ const ActaEditor: React.FC<ActaEditorProps> = ({ acta, onBack, notify, user }) =
     fetchAutoridades();
   }, []);
 
-  useEffect(() => {
-    if (previewMode) {
-      setTimeout(() => {
-        const el = document.getElementById('preview-textarea') as HTMLTextAreaElement;
-        if (el) {
-          el.style.height = 'auto';
-          el.style.height = el.scrollHeight + 'px';
-        }
-      }, 50);
-    }
-  }, [refinado, previewMode]);
+
 
   const handleSave = async () => {
     try {
@@ -458,9 +448,10 @@ Eres un asistente de redacción institucional especializado en actas de sesión 
 Tu tarea es reescribir el borrador provisto usando un lenguaje formal, pulcro y adecuado.
 
 REGLAS CRÍTICAS / DE CARÁCTER OBLIGATORIO:
-1. Devuelve ESTRICTAMENTE un JSON con este formato: {"titulo_sugerido": "...", "contenido_redactado": "..."}
-2. NO incluyas NINGÚN tipo de saludo, introducción o texto fuera del JSON. Ni formato markdown \`\`\`json.
-3. Las declaraciones entre comillas dobles (" ") son Citas Exactas. Mantenlas literalmente en el texto final.
+1. NO RESUMAS ni omitas información. Mantén TODOS los acuerdos, debates y detalles mencionados. Extiende la redacción formalizando todo el contenido.
+2. Devuelve ESTRICTAMENTE un JSON con este formato: {"titulo_sugerido": "...", "contenido_redactado": "..."}
+3. NO incluyas NINGÚN tipo de saludo, introducción o texto fuera del JSON. Ni formato markdown \`\`\`json.
+4. Las declaraciones entre comillas dobles (" ") son Citas Exactas. Mantenlas literalmente en el texto final.
 
 Contenido Borrador:
 ${bruto}
@@ -468,7 +459,11 @@ ${bruto}
 
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
-        contents: promptText
+        contents: promptText,
+        config: {
+          responseMimeType: "application/json",
+          temperature: 0.3,
+        }
       });
       
       let resText = response.text || '';
@@ -670,19 +665,24 @@ ${bruto}
                   </div>
                 </div>
                 
-                <textarea
-                  id="preview-textarea"
-                  value={refinado}
-                  onChange={e => setRefinado(e.target.value)}
-                  placeholder="El texto refinado aparecerá aquí. Ajusta cualquier detalle directamente aquí antes de imprimir."
-                  className="w-full flex-1 border-none focus:ring-0 resize-none font-serif text-[1.05rem] bg-transparent p-0 text-justify overflow-hidden leading-[1.8] outline-none selection:bg-indigo-200"
-                  onInput={(e) => {
-                     const target = e.target as HTMLTextAreaElement;
-                     target.style.height = 'auto';
-                     target.style.height = target.scrollHeight + 'px';
-                  }}
-                  style={{ textAlign: 'justify', minHeight: '400px' }}
-                />
+                <div className="relative w-full min-h-[400px]">
+                  {/* Div invisible para forzar el alto real del texto y para impresión */}
+                  <div 
+                    className="w-full font-serif text-[1.05rem] p-0 text-justify whitespace-pre-wrap leading-[1.8] invisible print:visible print:block"
+                    aria-hidden="true"
+                  >
+                    {refinado || ' '}
+                  </div>
+                  
+                  {/* Textarea para edición sobrepuesta al div invisible */}
+                  <textarea
+                    id="preview-textarea"
+                    value={refinado}
+                    onChange={e => setRefinado(e.target.value)}
+                    placeholder="El texto refinado aparecerá aquí. Ajusta cualquier detalle directamente."
+                    className="absolute inset-0 w-full h-full border-none focus:ring-0 resize-none font-serif text-[1.05rem] bg-transparent p-0 text-justify overflow-hidden leading-[1.8] outline-none selection:bg-indigo-200 print:hidden"
+                  />
+                </div>
 
                 {firmantes.length > 0 && (
                   <div className="w-full mt-24 pt-10">
