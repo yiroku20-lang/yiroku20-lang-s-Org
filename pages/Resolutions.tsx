@@ -71,7 +71,7 @@ export const Resolutions: React.FC<{ user: User }> = ({ user }) => {
               finalPdfUrl = urlData.publicUrl;
           }
 
-          const payload = { number, date, subject: subject.toUpperCase(), pdf_url: finalPdfUrl, parent_id: parentId };
+          const payload: any = { number, date, subject: subject.toUpperCase(), pdf_url: finalPdfUrl, parent_id: parentId };
           
           if (editingId) {
               await supabase.from('resolutions').update(payload).eq('id', editingId);

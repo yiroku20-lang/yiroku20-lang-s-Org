@@ -52,6 +52,13 @@ export const Login: React.FC<Props> = ({ onLogin }) => {
         }
 
         // Login exitoso
+        try {
+            await supabase.from('tramite_seguimiento').insert([{
+                action_type: 'Sistema',
+                description: 'Inicio de Sesión',
+                user_name: userData.name,
+            }]);
+        } catch(e) {}
         onLogin(userData);
         navigate('/');
     } catch (err: any) {

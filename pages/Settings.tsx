@@ -120,25 +120,48 @@ export const Settings: React.FC<{ user: User, notify?: (msg: string, type?: 'suc
           .eq('id', editingId);
         if (profileError) throw profileError;
         
-        // If password was provided, update it via our secure RPC
+        // If password was provided, update it via our secure API
         if (password) {
-           const { error: passError } = await supabase.rpc('admin_update_user_password', {
-             p_user_id: editingId,
-             p_new_password: password.trim()
-           });
-           if (passError) throw passError;
+           try {
+             const response = await fetch('/api/update-user-password', {
+                 method: 'POST',
+                 headers: { 'Content-Type': 'application/json' },
+                 body: JSON.stringify({
+                     user_id: editingId,
+                     password: password.trim()
+                 })
+             });
+             const result = await response.json();
+             if (!response.ok) {
+                 throw new Error(result.error || "Error al actualizar contraseña.");
+             }
+           } catch(err: any) {
+               throw err;
+           }
         }
 
       } else {
-        // Create new user using secure RPC to sync with auth.users
-        const { error } = await supabase.rpc('admin_create_user', {
-          p_dni: dni.trim(),
-          p_password: password.trim(),
-          p_name: name.trim(),
-          p_role: role,
-          p_permissions: role === 'Operador' ? permissions : null
-        });
-        if (error) throw error;
+        // Create new user using the secure server API
+        try {
+          const response = await fetch('/api/create-user', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                  dni: dni.trim(),
+                  password: password.trim(),
+                  name: name.trim(),
+                  role,
+                  permissions: role === 'Operador' ? permissions : null
+              })
+          });
+          
+          const result = await response.json();
+          if (!response.ok) {
+              throw new Error(result.error || "Error al crear usuario.");
+          }
+        } catch (err: any) {
+            throw err;
+        }
       }
 
       setIsModalOpen(false);

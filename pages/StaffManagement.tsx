@@ -3,6 +3,7 @@ import Papa from 'papaparse';
 import { supabase } from '../lib/supabaseClient';
 import { User, PersonalDirectorio, PersonalProceso, PersonalNecesidad, PersonalSorteo, CVModalidad, PersonalCargo } from '../types';
 import { useReactToPrint } from 'react-to-print';
+import { ScheduleBuilderModal } from '../components/ScheduleBuilderModal';
 
 interface StaffManagementProps {
   user: User;
@@ -56,6 +57,12 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({ user, notify }
   const [sorteos, setSorteos] = useState<PersonalSorteo[]>([]);
   const [selectedSorteoProceso, setSelectedSorteoProceso] = useState<string>('');
   const sortFileInput = useRef<HTMLInputElement>(null);
+
+  // Schedule Builder State
+  const [scheduleBuilderOpen, setScheduleBuilderOpen] = useState(false);
+  const [scheduleBuilderCargo, setScheduleBuilderCargo] = useState('');
+  const [scheduleBuilderProcesoName, setScheduleBuilderProcesoName] = useState('');
+  const [scheduleBuilderUsers, setScheduleBuilderUsers] = useState<any[]>([]);
 
   // -> New states for Edit Necesidades and Sorteo Manual/Filters
   const [isEditingNecesidades, setIsEditingNecesidades] = useState(false);
@@ -1129,10 +1136,26 @@ UNSAAC`);
                                                     <span className={`text-2xl font-black leading-none ${pct >= 100 ? 'text-emerald-600' : 'text-slate-900'}`}>{stat.confirmados}</span>
                                                     <span className="text-xs font-medium text-slate-500 mb-0.5 whitespace-nowrap">/ {stat.requerida} requeridos</span>
                                                 </div>
-                                                <div className="mt-2 text-[10px] font-bold text-indigo-600 flex items-center gap-1 bg-indigo-50 w-fit px-1.5 py-0.5 rounded">
+                                                <div className="mt-2 text-[10px] font-bold text-indigo-600 flex items-center gap-1 bg-indigo-50 w-fit px-1.5 py-0.5 rounded mb-2">
                                                     <span className="material-symbols-outlined text-[14px]">hourglass_top</span>
                                                     {stat.pendientes} notif. pendientes
                                                 </div>
+                                                
+                                                {stat.confirmados > 0 && (
+                                                    <button 
+                                                        onClick={() => {
+                                                            const filtered = sorteos.filter(s => s.cargo === stat.cargo && s.estado_confirmacion === 'Confirmado');
+                                                            setScheduleBuilderUsers(filtered);
+                                                            setScheduleBuilderCargo(stat.cargo);
+                                                            setScheduleBuilderProcesoName(procesos.find(p => p.id === selectedSorteoProceso)?.nombre || 'Proceso Activo');
+                                                            setScheduleBuilderOpen(true);
+                                                        }}
+                                                        className="mt-1 w-full text-[10px] font-black uppercase tracking-wider bg-slate-100 hover:bg-slate-200 text-slate-700 py-1.5 rounded-lg active:scale-95 transition-all flex items-center justify-center gap-1"
+                                                    >
+                                                        <span className="material-symbols-outlined text-[14px]">calendar_add_on</span> Generar Horario
+                                                    </button>
+                                                )}
+
                                                 <div className="absolute bottom-0 left-0 h-1.5 bg-slate-100 w-full" />
                                                 <div className={`absolute bottom-0 left-0 h-1.5 transition-all ${pct >= 100 ? 'bg-emerald-500' : 'bg-primary'}`} style={{ width: `${Math.min(pct, 100)}%` }} />
                                             </div>
@@ -1536,6 +1559,15 @@ UNSAAC`);
           </table>
         </div>
       </div>
+
+      <ScheduleBuilderModal
+          isOpen={scheduleBuilderOpen}
+          onClose={() => setScheduleBuilderOpen(false)}
+          users={scheduleBuilderUsers}
+          cargo={scheduleBuilderCargo}
+          procesoName={scheduleBuilderProcesoName}
+          procesoId={selectedSorteoProceso}
+      />
 
     </div>
   );

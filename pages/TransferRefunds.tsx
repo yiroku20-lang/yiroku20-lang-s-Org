@@ -287,6 +287,15 @@ export const TransferRefunds: React.FC<{ user: User }> = ({ user }) => {
       try {
           const { error } = await supabase.from('padron_pagos').insert(csvPreview);
           if (error) throw error;
+          
+          try {
+              await supabase.from('tramite_seguimiento').insert([{
+                  action_type: 'Registro',
+                  description: `Se importó un lote de ${csvPreview.length} registros de Pagos/Transferencias.`,
+                  user_name: user?.name || 'Operador / Sistema'
+              }]);
+          } catch (e) { console.error('Audit error:', e); }
+
           alert(`✅ Importación exitosa: ${csvPreview.length} registros.`);
           setIsImportModalOpen(false); fetchData();
       } catch (err: any) { alert(err.message); } finally { setIsSubmitting(false); }

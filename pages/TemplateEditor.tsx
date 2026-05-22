@@ -112,7 +112,11 @@ const DEFAULT_CONSTANCIA_HTML = `
 </div>
 `;
 
-export const TemplateEditor: React.FC = () => {
+interface Props {
+  user?: any;
+}
+
+export const TemplateEditor: React.FC<Props> = ({ user }) => {
   const navigate = useNavigate();
   const { id } = useParams();
   const location = useLocation();
@@ -469,6 +473,19 @@ export const TemplateEditor: React.FC = () => {
       }
   };
 
+  const handleDeleteResource = async (fileName: string) => {
+      if (!window.confirm('¿Está seguro de eliminar este recurso?')) return;
+      try {
+          const { error } = await supabase.storage.from('plantillas_recursos').remove([fileName]);
+          if (error) throw error;
+          showToast('Recurso eliminado');
+          await fetchResources();
+      } catch (error) {
+          console.error('Error al eliminar recurso:', error);
+          showToast('Error al eliminar recurso');
+      }
+  };
+
   const showToast = (message: string) => {
     setNotification(message);
     setTimeout(() => setNotification(null), 3000);
@@ -614,11 +631,13 @@ export const TemplateEditor: React.FC = () => {
             const { error } = await supabase.from('templates').insert([payload]);
             if (error) throw error;
             showToast('Plantilla creada exitosamente');
+            try { await supabase.from('tramite_seguimiento').insert([{ action_type: 'Registro', description: `Creó una nueva plantilla: "${documentTitle}"`, user_name: user?.name || 'Operador / Sistema' }]); } catch(e) {}
             setTimeout(() => navigate('/templates'), 1000);
         } else {
             const { error } = await supabase.from('templates').update(payload).eq('id', id);
             if (error) throw error;
             showToast('Cambios guardados');
+            try { await supabase.from('tramite_seguimiento').insert([{ action_type: 'Estado', description: `Modificó la plantilla: "${documentTitle}"`, user_name: user?.name || 'Operador / Sistema' }]); } catch(e) {}
         }
     } catch (error: any) {
         console.error("Error saving:", error);
@@ -873,7 +892,7 @@ export const TemplateEditor: React.FC = () => {
                                             className="aspect-square bg-slate-100 rounded border border-slate-200 flex items-center justify-center relative group overflow-hidden"
                                         >
                                             <img src={res.url} alt={res.name} className="w-full h-full object-contain p-1" />
-                                            <div className="absolute inset-0 bg-slate-900/80 flex flex-col items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity p-2">
+                                            <div className="absolute inset-0 bg-slate-900/80 flex flex-col items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity p-2">
                                                 <button 
                                                     onClick={() => handleInsertImageHTML(res.url)}
                                                     className="w-full bg-white text-slate-900 text-[10px] font-bold py-1 rounded hover:bg-primary hover:text-white transition-colors"
@@ -885,6 +904,12 @@ export const TemplateEditor: React.FC = () => {
                                                     className="w-full bg-slate-700 text-white text-[10px] font-bold py-1 rounded hover:bg-primary transition-colors border border-slate-600"
                                                 >
                                                     Fondo
+                                                </button>
+                                                <button 
+                                                    onClick={() => handleDeleteResource(res.name)}
+                                                    className="w-full bg-red-600 text-white text-[10px] font-bold py-1 rounded hover:bg-red-700 transition-colors border border-red-800 flex items-center justify-center gap-1"
+                                                >
+                                                    <span className="material-symbols-outlined text-[12px]">delete</span> Borrar
                                                 </button>
                                             </div>
                                         </div>

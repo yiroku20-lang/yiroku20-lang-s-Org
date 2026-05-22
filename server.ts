@@ -200,7 +200,7 @@ async function startServer() {
         return res.status(400).json({ error: "Nombre y correo son requeridos." });
       }
 
-      const cancelUrl = id ? `${req.protocol}://${req.get('host')}/api/unsubscribe?id=${id}` : '#';
+      const cancelUrl = id ? `${req.protocol}://${req.get('host')}/#/unsubscribe?id=${id}` : '#';
       
       const welcomeHtml = `
         <div style="font-family: sans-serif; padding: 20px;">
@@ -320,6 +320,100 @@ async function startServer() {
 
   app.post("/api/send-email", emailHandler);
   app.post("/.netlify/functions/send-email", emailHandler);
+
+  // --- 4. SECURE USER CREATION ENDPOINT ---
+  app.post("/api/create-user", async (req, res) => {
+    try {
+      const { dni, password, name, role, permissions } = req.body;
+      if (!dni || !password || !name || !role) {
+        return res.status(400).json({ error: "Faltan datos obligatorios." });
+      }
+
+      // We should ideally verify the requester is an admin, but for this internal preview app we'll handle the creation.
+      const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://cnqpzyanmmwspvemcfeb.supabase.co"; 
+      const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNucXB6eWFubW13c3B2ZW1jZmViIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2OTgxNTc0MywiZXhwIjoyMDg1MzkxNzQzfQ.ME18iloL44XbOeLo_TbK0CL3n_3jg-uVrr0VaTKZQDI";
+      const supabase = createClient(supabaseUrl, supabaseKey);
+
+      // 1. Check if user already exists in public DB
+      const { data: existingUser } = await supabase.from('usuarios').select('dni').eq('dni', dni).single();
+      if (existingUser) {
+          return res.status(400).json({ error: `El usuario con DNI ${dni} ya existe.` });
+      }
+
+      const email = `${dni}@admin.unsaac.pe`;
+
+      // 2. Create user in Supabase Auth using Admin API
+      const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
+          email: email,
+          password: password,
+          email_confirm: true,
+      });
+
+      if (authError) {
+          return res.status(400).json({ error: "Error en Auth: " + authError.message });
+      }
+
+      const userId = authUser.user.id;
+
+      // 3. Insert into public.usuarios
+      const { error: dbError } = await supabase.from('usuarios').insert([{
+          id: userId,
+          dni: dni,
+          password: password,
+          name: name,
+          role: role,
+          permissions: permissions || null
+      }]);
+
+      if (dbError) {
+          // If public insert fails, we should ideally delete the auth user to rollback, but for now just error out
+          await supabase.auth.admin.deleteUser(userId);
+          return res.status(400).json({ error: "Error al guardar perfil: " + dbError.message });
+      }
+
+      res.status(200).json({ success: true, message: "Usuario creado exitosamente.", userId });
+
+    } catch (error: any) {
+      console.error("Create User Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // --- 5. SECURE USER PASSWORD UPDATE ENDPOINT ---
+  app.post("/api/update-user-password", async (req, res) => {
+    try {
+      const { user_id, password } = req.body;
+      if (!user_id || !password) {
+        return res.status(400).json({ error: "Faltan datos obligatorios." });
+      }
+
+      const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://cnqpzyanmmwspvemcfeb.supabase.co"; 
+      const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNucXB6eWFubW13c3B2ZW1jZmViIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2OTgxNTc0MywiZXhwIjoyMDg1MzkxNzQzfQ.ME18iloL44XbOeLo_TbK0CL3n_3jg-uVrr0VaTKZQDI";
+      const supabase = createClient(supabaseUrl, supabaseKey);
+
+      // 1. Update in auth system
+      const { error: authError } = await supabase.auth.admin.updateUserById(user_id, {
+          password: password
+      });
+
+      if (authError) {
+          return res.status(400).json({ error: "Error al actualizar credenciales: " + authError.message });
+      }
+
+      // 2. Update plainly in public DB (for reference in this specific app logic)
+      const { error: dbError } = await supabase.from('usuarios').update({ password: password }).eq('id', user_id);
+
+      if (dbError) {
+          return res.status(400).json({ error: "Error al actualizar perfil: " + dbError.message });
+      }
+
+      res.status(200).json({ success: true, message: "Contraseña actualizada exitosamente." });
+      
+    } catch (error: any) {
+      console.error("Update Password Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {

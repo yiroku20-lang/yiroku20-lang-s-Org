@@ -15,6 +15,7 @@ export const SystemLogs: React.FC = () => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('Todos');
+  const [userSearch, setUserSearch] = useState('');
 
   useEffect(() => {
     fetchAllLogs();
@@ -30,23 +31,36 @@ export const SystemLogs: React.FC = () => {
       const userMap = new Map(usersData?.map(u => [u.id, u.name]) || []);
 
       // 1. Tramite Seguimiento (Has exact user)
-      const { data: tracking } = await supabase.from('tramite_seguimiento').select('*').order('created_at', { ascending: false }).limit(100);
+      const { data: tracking } = await supabase.from('tramite_seguimiento').select('*').order('created_at', { ascending: false }).limit(200);
       if (tracking) {
         tracking.forEach(t => {
+          let source = 'Seguimiento';
+          let actionColor = t.action_type === 'Estado' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800';
+          let action = t.action_type === 'Estado' ? 'Cambio de Estado' : 'Nota Agregada';
+          
+          if (t.action_type === 'Sistema') {
+              source = 'Sistema';
+              actionColor = 'bg-slate-100 text-slate-800';
+              action = 'Actividad de Sesión';
+          } else if (t.action_type === 'Registro') {
+              actionColor = 'bg-emerald-100 text-emerald-800';
+              action = 'Importación / Registro';
+          }
+
           allLogs.push({
             id: `trk-${t.id}`,
             user: t.user_name || 'Sistema',
-            action: t.action_type === 'Estado' ? 'Cambio de Estado' : 'Nota Agregada',
-            actionColor: t.action_type === 'Estado' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800',
+            action,
+            actionColor,
             timestamp: new Date(t.created_at),
             details: t.description,
-            source: 'Seguimiento'
+            source
           });
         });
       }
 
       // 2. Expedientes (Entradas)
-      const { data: entradas } = await supabase.from('expedientes').select('*').order('created_at', { ascending: false }).limit(100);
+      const { data: entradas } = await supabase.from('expedientes').select('*').order('created_at', { ascending: false }).limit(200);
       if (entradas) {
         entradas.forEach(e => {
           allLogs.push({
@@ -62,7 +76,7 @@ export const SystemLogs: React.FC = () => {
       }
 
       // 3. Expedientes Salida
-      const { data: salidas } = await supabase.from('expedientes_salida').select('*').order('created_at', { ascending: false }).limit(100);
+      const { data: salidas } = await supabase.from('expedientes_salida').select('*').order('created_at', { ascending: false }).limit(200);
       if (salidas) {
         salidas.forEach(s => {
           allLogs.push({
@@ -78,7 +92,7 @@ export const SystemLogs: React.FC = () => {
       }
 
       // 4. Padron Pagos
-      const { data: pagos } = await supabase.from('padron_pagos').select('*').order('created_at', { ascending: false }).limit(100);
+      const { data: pagos } = await supabase.from('padron_pagos').select('*').order('created_at', { ascending: false }).limit(200);
       if (pagos) {
         pagos.forEach(p => {
           allLogs.push({
@@ -104,7 +118,11 @@ export const SystemLogs: React.FC = () => {
     }
   };
 
-  const filteredLogs = filter === 'Todos' ? logs : logs.filter(l => l.source === filter);
+  const filteredLogs = logs.filter(l => {
+      const matchFilter = filter === 'Todos' || l.source === filter;
+      const matchUser = userSearch === '' || l.user.toLowerCase().includes(userSearch.toLowerCase());
+      return matchFilter && matchUser;
+  });
 
   return (
     <div className="flex flex-col gap-6 max-w-[1200px] mx-auto w-full p-6 md:p-8 h-full overflow-hidden">
@@ -126,17 +144,29 @@ export const SystemLogs: React.FC = () => {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex gap-2 overflow-x-auto pb-2 shrink-0 hide-scrollbar">
-          {['Todos', 'Entradas', 'Salidas', 'Seguimiento', 'Pagos'].map(f => (
-              <button 
-                  key={f}
-                  onClick={() => setFilter(f)}
-                  className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest whitespace-nowrap transition-all ${filter === f ? 'bg-slate-900 text-white shadow-md' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}
-              >
-                  {f}
-              </button>
-          ))}
+      {/* Filters & Search */}
+      <div className="flex flex-col md:flex-row gap-4 shrink-0">
+          <div className="flex gap-2 overflow-x-auto pb-2 hide-scrollbar">
+              {['Todos', 'Entradas', 'Salidas', 'Seguimiento', 'Pagos', 'Sistema'].map(f => (
+                  <button 
+                      key={f}
+                      onClick={() => setFilter(f)}
+                      className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest whitespace-nowrap transition-all ${filter === f ? 'bg-slate-900 text-white shadow-md' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}
+                  >
+                      {f}
+                  </button>
+              ))}
+          </div>
+          <div className="flex-1 max-w-sm relative">
+              <span className="material-symbols-outlined absolute left-3 top-2.5 text-slate-400">search</span>
+              <input
+                  type="text"
+                  placeholder="Buscar por nombre de usuario..."
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm font-medium focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all placeholder:text-slate-400 text-slate-700"
+              />
+          </div>
       </div>
 
       {/* Table Container */}

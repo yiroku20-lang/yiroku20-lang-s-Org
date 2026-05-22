@@ -232,7 +232,7 @@ export const OutgoingFiles: React.FC<{ user: User }> = ({ user }) => {
                   });
 
                   // Filter out empty rows
-                  const validRecords = recordsToInsert.filter(r => r.doc_number && r.subject);
+                  const validRecords = recordsToInsert.filter(r => r.doc_number && r.subject).map(r => ({ ...r, created_by: user.id }));
 
                   if (validRecords.length === 0) {
                       throw new Error("No se encontraron registros válidos en el CSV. Verifique los encabezados.");

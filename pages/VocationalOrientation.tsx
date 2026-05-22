@@ -343,7 +343,7 @@ Dirección de Admisión`);
         
         // Enviar correo de bienvenida al nuevo prospecto
         try {
-          const cancelUrl = insertedData ? `${window.location.origin}/api/unsubscribe?id=${insertedData.id}` : '#';
+          const cancelUrl = insertedData ? `${window.location.origin}/#/unsubscribe?id=${insertedData.id}` : '#';
           const welcomeHtml = `
             <div style="font-family: sans-serif; padding: 20px;">
               <h2 style="color: #7b1523;">¡Bienvenido(a) a la plataforma de Atención y Orientación al Postulante UNSAAC!</h2>
@@ -452,20 +452,20 @@ Dirección de Admisión`);
       phoneNum = '51' + phoneNum;
     }
 
-    const shortMsg = `¡Hola *${p.nombre}*! 👋
+    const hasTakenTest = p.resultado_test && p.resultado_test !== '';
+    const testLink = hasTakenTest 
+      ? '' 
+      : `\n\n¿Aún no sabes qué estudiar?\nRealiza nuestro Test Vocacional gratis aquí:\n👉 https://test-prueba-admision.netlify.app/`;
 
-Notamos tu interés en postular a la UNSAAC${p.carrera_interes ? ` (Carrera: *${p.carrera_interes}*)` : ''}. 🎓
+    const shortMsg = `¡Hola *${p.nombre}*!
 
-📌 *Brochure de Carreras Profesionales*:
-🔹 https://drive.google.com/file/d/1PjlN342ZH-b5p_c1-GB9VJUVUZf_w3LF/view?usp=sharing
+Notamos tu interés en postular a la UNSAAC${p.carrera_interes ? ` (*${p.carrera_interes}*)` : ''}.
 
-📌 *Web Oficial (Temarios, cronogramas, modalidades)*:
-🔹 https://admision.unsaac.edu.pe
+*Enlaces útiles para tu postulación:*
+- Brochure: https://drive.google.com/file/d/1PjlN342ZH-b5p_c1-GB9VJUVUZf_w3LF/view
+- Web Oficial (Cronogramas y Temarios): https://admision.unsaac.edu.pe${testLink}
 
-📱 *Síguenos en nuestras redes*:
-💙 Facebook: https://www.facebook.com/p/Direcci%C3%B3n-de-Admisi%C3%B3n-Universidad-Nacional-de-San-Antonio-Abad-del-Cusco-61562739426524/?locale=es_LA
-▶️ YouTube: http://www.youtube.com/@DireccionAdmisionUNSAAC
-🎵 TikTok: https://www.tiktok.com/@unsaac.admision
+Búscanos en Facebook, YouTube y TikTok como: *Dirección de Admisión UNSAAC*
 
 Si tienes dudas, avísanos.
 _Dirección de Admisión UNSAAC_`;
@@ -574,7 +574,7 @@ _Dirección de Admisión UNSAAC_`;
           .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
           .replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank" style="color: #7b1523; text-decoration: underline; font-weight: bold;">$1</a>');
           
-        const cancelUrl = `${window.location.origin}/api/unsubscribe?id=${p.id}`;
+        const cancelUrl = `${window.location.origin}/#/unsubscribe?id=${p.id}`;
         const finalHtmlBody = `<div style="font-family: sans-serif; padding: 20px; color: #333; line-height: 1.6;">${htmlContent}</div>
         <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
         <div style="text-align: center; font-size: 11px; color: #999;">

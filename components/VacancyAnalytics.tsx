@@ -5,6 +5,8 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   LineChart, Line
 } from 'recharts';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 interface VacancyAnalyticsProps {
   onBack: () => void;
@@ -20,6 +22,8 @@ export const VacancyAnalytics: React.FC<VacancyAnalyticsProps> = ({ onBack, noti
   const [selectedYears, setSelectedYears] = useState<string[]>([]);
   const [filterArea, setFilterArea] = useState<string>('Todas');
   
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+
   const [isYearsDropdownOpen, setIsYearsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -40,7 +44,7 @@ export const VacancyAnalytics: React.FC<VacancyAnalyticsProps> = ({ onBack, noti
   const fetchAnalyticsData = async () => {
     setLoading(true);
     try {
-      const { data: cuadros, error: errCuadros } = await supabase.from('cv_cuadros_anuales').select('*').eq('estado', 'Aprobado');
+      const { data: cuadros, error: errCuadros } = await supabase.from('cv_cuadros_anuales').select('*');
       if (errCuadros) throw errCuadros;
 
       if (!cuadros || cuadros.length === 0) {
@@ -54,13 +58,37 @@ export const VacancyAnalytics: React.FC<VacancyAnalyticsProps> = ({ onBack, noti
       if (errMods) throw errMods;
 
       const modIds = modalidades?.map(m => m.id) || [];
-      const { data: vacantes, error: errVac } = await supabase.from('cv_vacantes').select('*').in('modalidad_id', modIds);
-      if (errVac) throw errVac;
+      
+      let allVacantes: any[] = [];
+      let from = 0;
+      let count = 1000;
+      let hasMore = true;
+
+      while (hasMore) {
+        const { data: chunk, error: errVac } = await supabase
+          .from('cv_vacantes')
+          .select('*')
+          .in('modalidad_id', modIds)
+          .order('id')
+          .range(from, from + count - 1);
+        
+        if (errVac) throw errVac;
+        
+        if (chunk && chunk.length > 0) {
+          allVacantes = [...allVacantes, ...chunk];
+        }
+        
+        if (!chunk || chunk.length < count) {
+          hasMore = false;
+        } else {
+          from += count;
+        }
+      }
 
       const { data: escuelas, error: errEsc } = await supabase.from('cv_escuelas').select('*');
       if (errEsc) throw errEsc;
 
-      const combinedData = vacantes?.map(v => {
+      const combinedData = allVacantes.map(v => {
         const mod = modalidades?.find(m => m.id === v.modalidad_id);
         const esc = escuelas?.find(e => e.id === v.escuela_id);
         const cuadro = cuadros.find(c => c.id === mod?.cuadro_id);
@@ -119,17 +147,146 @@ export const VacancyAnalytics: React.FC<VacancyAnalyticsProps> = ({ onBack, noti
     return Object.values(areaMap).sort((a, b) => a.name.localeCompare(b.name));
   }, [data, selectedYears]);
 
-  // Chart 3: Evolución por Escuelas (Cruzado por años seleccionados, respeta filtro de área)
-  const chartEscuelas = useMemo(() => {
-    const escMap: Record<string, any> = {};
-    filteredData.forEach(d => {
-      if (!escMap[d.escuela]) escMap[d.escuela] = { name: d.escuela };
-      escMap[d.escuela][d.anio] = (escMap[d.escuela][d.anio] || 0) + d.cantidad;
+  // Data that powers the specific Table View (Groups by Area, then by Escuela)
+  const tableDataGrouped = useMemo(() => {
+    const grouped: Record<string, Record<string, any>> = {};
+    const relevantData = data.filter(d => selectedYears.includes(d.anio) && (filterArea === 'Todas' || d.area === filterArea));
+    
+    relevantData.forEach(d => {
+      if (!grouped[d.area]) grouped[d.area] = {};
+      if (!grouped[d.area][d.escuela]) {
+        grouped[d.area][d.escuela] = { area: d.area, escuela: d.escuela };
+      }
+      grouped[d.area][d.escuela][d.anio] = (grouped[d.area][d.escuela][d.anio] || 0) + d.cantidad;
     });
-    return Object.values(escMap).sort((a, b) => a.name.localeCompare(b.name));
-  }, [filteredData]);
+    return grouped;
+  }, [data, selectedYears, filterArea]);
 
-  const escuelasChartHeight = Math.max(400, chartEscuelas.length * 45);
+  const yearTotals = useMemo(() => {
+    const totals: Record<string, number> = {};
+    selectedYears.forEach(y => totals[y] = 0);
+
+    Object.values(tableDataGrouped).forEach(areaGroup => {
+      Object.values(areaGroup).forEach(esc => {
+        selectedYears.forEach(y => {
+          totals[y] += (esc[y] || 0);
+        });
+      });
+    });
+    return totals;
+  }, [tableDataGrouped, selectedYears]);
+
+  const exportReportToPDF = () => {
+    if (selectedYears.length === 0) {
+      notify("Debe seleccionar al menos un año para exportar el reporte.");
+      return;
+    }
+
+    setIsGeneratingPDF(true);
+    setTimeout(() => {
+      try {
+        const doc = new jsPDF('l', 'mm', 'a4');
+        doc.setFontSize(16);
+        doc.setFont("helvetica", "bold");
+        doc.text("REPORTE: CUADRO DE VACANTES POR ESCUELAS", 14, 20);
+        
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        doc.text(`Años: ${selectedYears.join(', ')} | Filtro: ${filterArea === 'Todas' ? 'Todas las Áreas' : `Área ${filterArea}`}`, 14, 28);
+        
+        const headRow = [
+          { content: 'ESCUELAS PROFESIONALES', styles: { halign: 'left' } },
+          ...selectedYears.map(y => ({ content: `TOTAL ${y}`, styles: { halign: 'center' } })),
+          { content: 'TENDENCIA', styles: { halign: 'center' } } // Trendline column
+        ];
+
+        const bodyRows: any[] = [];
+        const areasSorted = Object.keys(tableDataGrouped).sort();
+
+        areasSorted.forEach(area => {
+          bodyRows.push([
+            { content: `ÁREA ${area}`, colSpan: selectedYears.length + 2, styles: { halign: 'center', fontStyle: 'bold', fillColor: [254, 242, 242], textColor: [123, 21, 35] } }
+          ]);
+          
+          const escuelas = Object.values(tableDataGrouped[area]).sort((a,b) => a.escuela.localeCompare(b.escuela));
+          escuelas.forEach(esc => {
+            const row = [
+              { content: esc.escuela },
+              ...selectedYears.map(y => ({ content: (esc[y] || 0).toString(), styles: { halign: 'center' } })),
+              { content: '', _trendData: selectedYears.map(y => esc[y] || 0) }
+            ];
+            bodyRows.push(row);
+          });
+        });
+
+        const footRow = [
+          { content: 'TOTAL GENERAL', styles: { halign: 'right', fontStyle: 'bold', fillColor: [123, 21, 35], textColor: 255 } },
+          ...selectedYears.map(y => ({ content: yearTotals[y].toString(), styles: { halign: 'center', fontStyle: 'bold', fillColor: [123, 21, 35], textColor: 255 } })),
+          { content: '', styles: { fillColor: [123, 21, 35] } }
+        ];
+
+        // The autotable signature can be finicky depending on the version, doc passes context
+        autoTable(doc as any, {
+          startY: 35,
+          head: [headRow],
+          body: bodyRows as any,
+          foot: [footRow],
+          theme: 'grid',
+          headStyles: { fillColor: [123, 21, 35], textColor: 255, fontStyle: 'bold' },
+          styles: { fontSize: 8, cellPadding: 2 },
+          columnStyles: { 
+            0: { cellWidth: 80 },
+            // dynamically target the trendline column which is the last one
+            [(selectedYears.length + 1).toString()]: { cellWidth: 30 }
+          },
+          didDrawCell: (data: any) => {
+             if (data.section === 'body' && data.column.index === selectedYears.length + 1) {
+                const rawCell = data.row.raw[data.column.index];
+                if (rawCell && rawCell._trendData) {
+                   const values = rawCell._trendData;
+                   if (values.length > 1) {
+                      const padding = 2;
+                      const startX = data.cell.x + padding;
+                      const startY = data.cell.y + padding + 1; // Slight downward offset
+                      const drawWidth = data.cell.width - (padding * 2);
+                      const drawHeight = data.cell.height - (padding * 2) - 2;
+
+                      const max = Math.max(...values);
+                      const min = Math.min(...values);
+                      const range = max - min === 0 ? 1 : max - min;
+
+                      const stepX = drawWidth / (values.length - 1);
+                      
+                      doc.setDrawColor(123, 21, 35); // Institutional red trendline
+                      doc.setLineWidth(1); // Make it slightly thicker for visibility
+
+                      let prevX = 0, prevY = 0;
+                      for (let i = 0; i < values.length; i++) {
+                          const px = startX + (i * stepX);
+                          let py = startY + drawHeight - (((values[i] - min) / range) * drawHeight);
+                          if (max === min) py = startY + drawHeight / 2; // Middle if constant
+
+                          if (i > 0) {
+                              doc.line(prevX, prevY, px, py);
+                          }
+                          prevX = px;
+                          prevY = py;
+                      }
+                   }
+                }
+             }
+          }
+        });
+
+        doc.save(`Reporte_Vacantes_${new Date().toISOString().split('T')[0]}.pdf`);
+        notify("Reporte exportado exitosamente", "success");
+      } catch (err: any) {
+        notify("Error al exportar a PDF: " + err.message, "error");
+      } finally {
+        setIsGeneratingPDF(false);
+      }
+    }, 100);
+  };
 
   if (loading) {
     return (
@@ -284,33 +441,81 @@ export const VacancyAnalytics: React.FC<VacancyAnalyticsProps> = ({ onBack, noti
           </div>
         </div>
 
-        {/* Chart 3: Escuelas */}
-        <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm">
+        {/* Tabla Detallada Reporte con Tendencia */}
+        <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm flex flex-col">
           <div className="flex items-center justify-between mb-6">
-            <h3 className="font-black text-slate-900 uppercase tracking-tight">Evolución por Escuelas Profesionales</h3>
-            <span className="px-3 py-1 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-black uppercase tracking-widest">
-              {filterArea === 'Todas' ? 'Todas las Áreas' : `Área ${filterArea}`}
-            </span>
+            <h3 className="font-black text-slate-900 uppercase tracking-tight">Reporte: Cuadro de Vacantes por Escuelas</h3>
+            <button 
+              onClick={exportReportToPDF}
+              disabled={isGeneratingPDF || selectedYears.length === 0}
+              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-xl font-black tracking-widest text-[10px] uppercase flex items-center gap-2 shadow-lg shadow-red-200 disabled:opacity-50"
+            >
+              {isGeneratingPDF ? (
+                <span className="material-symbols-outlined text-[16px] animate-spin">refresh</span>
+              ) : (
+                <span className="material-symbols-outlined text-[16px]">picture_as_pdf</span>
+              )}
+              {isGeneratingPDF ? 'Generando...' : 'Descargar PDF'}
+            </button>
           </div>
           
-          {chartEscuelas.length === 0 ? (
+          {Object.keys(tableDataGrouped).length === 0 ? (
             <div className="h-32 flex items-center justify-center text-slate-400 font-bold text-sm">
               No hay datos para mostrar con los filtros actuales.
             </div>
           ) : (
-            <div style={{ height: escuelasChartHeight }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartEscuelas} layout="vertical" margin={{ left: 180, right: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                  <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b', fontWeight: 700 }} />
-                  <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#475569', fontWeight: 700 }} width={170} />
-                  <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
-                  <Legend wrapperStyle={{ paddingTop: '10px', fontSize: '12px', fontWeight: 'bold', color: '#64748b' }} />
-                  {selectedYears.map(year => (
-                    <Bar key={year} dataKey={year} name={year} fill={yearColors[year]} radius={[0, 4, 4, 0]} barSize={12} />
+            <div className="overflow-x-auto w-full border border-slate-200 rounded-xl rounded-b-none">
+              <table className="w-full text-left text-sm whitespace-nowrap">
+                <thead className="bg-[#7b1523] border-b border-[#7b1523]">
+                  <tr>
+                    <th className="p-3 font-black text-white">ESCUELAS PROFESIONALES</th>
+                    {selectedYears.map(y => (
+                      <th key={y} className="p-3 font-black text-white text-center">TOTAL {y}</th>
+                    ))}
+                    <th className="p-3 font-black text-white text-center">TENDENCIA</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.keys(tableDataGrouped).sort().map(area => (
+                    <React.Fragment key={area}>
+                      <tr>
+                        <td colSpan={selectedYears.length + 2} className="bg-red-50 p-2 font-black text-[#7b1523] text-center uppercase tracking-widest border-y border-[#7b1523]/20 text-xs">
+                          Área {area}
+                        </td>
+                      </tr>
+                      {Object.values(tableDataGrouped[area]).sort((a,b) => a.escuela.localeCompare(b.escuela)).map(esc => {
+                        const sparklineData = selectedYears.map(y => ({ val: esc[y] || 0 }));
+                        return (
+                          <tr key={esc.escuela} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                            <td className="p-3 font-bold text-slate-700 text-xs truncate max-w-[250px]">{esc.escuela}</td>
+                            {selectedYears.map(y => (
+                              <td key={y} className="p-3 text-center text-slate-600 font-medium">{esc[y] || 0}</td>
+                            ))}
+                            <td className="p-1 px-3 text-center">
+                              <div className="w-[100px] h-[25px] inline-block mt-1">
+                                <ResponsiveContainer width="100%" height="100%">
+                                  <LineChart data={sparklineData}>
+                                    <Line type="monotone" dataKey="val" stroke="#7b1523" strokeWidth={2} dot={false} isAnimationActive={false} />
+                                  </LineChart>
+                                </ResponsiveContainer>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </React.Fragment>
                   ))}
-                </BarChart>
-              </ResponsiveContainer>
+                </tbody>
+                <tfoot className="bg-[#7b1523] border-t border-[#7b1523]">
+                  <tr>
+                    <td className="p-3 font-black text-white text-right uppercase tracking-widest text-xs">TOTAL GENERAL</td>
+                    {selectedYears.map(y => (
+                      <td key={`total-${y}`} className="p-3 font-black text-white text-center text-sm">{yearTotals[y]}</td>
+                    ))}
+                    <td className="p-3"></td>
+                  </tr>
+                </tfoot>
+              </table>
             </div>
           )}
         </div>

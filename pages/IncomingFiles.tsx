@@ -64,6 +64,8 @@ export const IncomingFiles: React.FC<IncomingFilesProps> = ({ user, notify }) =>
   const [detectedVariables, setDetectedVariables] = useState<string[]>([]);
   const [studentEmail, setStudentEmail] = useState('');
   const [boucherNumber, setBoucherNumber] = useState('');
+  const [signedPdf, setSignedPdf] = useState<File | null>(null);
+  const [downloadLocal, setDownloadLocal] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
 
   // Payment Flow States
@@ -599,15 +601,13 @@ export const IncomingFiles: React.FC<IncomingFilesProps> = ({ user, notify }) =>
       return content;
   };
 
-  const finalizeAndDownload = async () => {
+  const downloadDraftOnly = async () => {
       if (!fileToAttend || !previewRef.current || !selectedStudent) return;
       setIsSubmitting(true);
-      
       try {
           const sanitizedStudentName = selectedStudent.NOMBRE.replace(/[^a-zA-Z0-9]/g, '_');
-          const filename = `${fileToAttend.number}_${sanitizedStudentName}.pdf`;
+          const filename = `BORRADOR_${fileToAttend.number}_${sanitizedStudentName}.pdf`;
           
-          // 1. Generate PDF Blob
           const element = previewRef.current;
           const opt = {
             margin: 0,
@@ -618,12 +618,54 @@ export const IncomingFiles: React.FC<IncomingFilesProps> = ({ user, notify }) =>
           };
           
           const pdfBlob = await html2pdf().set(opt).from(element).output('blob');
+          
+          const url = window.URL.createObjectURL(pdfBlob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          
+          if (notify) notify("Borrador descargado con éxito. Puede firmarlo y adjuntarlo.");
+      } catch (err: any) {
+          console.error(err);
+          if (notify) notify("Error al descargar borrador: " + err.message, 'error');
+      } finally {
+          setIsSubmitting(false);
+      }
+  };
+
+  const finalizeAndDownload = async () => {
+      if (!fileToAttend || !previewRef.current || !selectedStudent) return;
+      setIsSubmitting(true);
+      
+      try {
+          const sanitizedStudentName = selectedStudent.NOMBRE.replace(/[^a-zA-Z0-9]/g, '_');
+          const filename = `${fileToAttend.number}_${sanitizedStudentName}.pdf`;
+          
+          let finalPdfBlob: Blob;
+          
+          if (signedPdf) {
+              finalPdfBlob = signedPdf;
+          } else {
+              // 1. Generate PDF Blob
+              const element = previewRef.current;
+              const opt = {
+                margin: 0,
+                filename: filename,
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2, useCORS: true, scrollY: 0 },
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+              };
+              finalPdfBlob = await html2pdf().set(opt).from(element).output('blob');
+          }
 
           // 2. Upload to Supabase Storage
           const storagePath = `salidas/${Date.now()}_${filename}`;
           const { error: uploadError } = await supabase.storage
               .from('documentos')
-              .upload(storagePath, pdfBlob, { contentType: 'application/pdf' });
+              .upload(storagePath, finalPdfBlob, { contentType: 'application/pdf' });
           
           if (uploadError) throw uploadError;
 
@@ -660,20 +702,22 @@ export const IncomingFiles: React.FC<IncomingFilesProps> = ({ user, notify }) =>
               }
           }
           
-          // 5. Trigger Download
-          const url = window.URL.createObjectURL(pdfBlob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = filename;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
+          // 5. Trigger Download only if requested
+          if (downloadLocal && !signedPdf) {
+              const url = window.URL.createObjectURL(finalPdfBlob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = filename;
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+          }
           
           // 6. Send Email if provided and is Constancia
           const isConstancia = selectedTemplate.category === 'Certificados' || selectedTemplate.name.toLowerCase().includes('constancia');
           if (studentEmail && isConstancia) {
               const reader = new FileReader();
-              reader.readAsDataURL(pdfBlob);
+              reader.readAsDataURL(finalPdfBlob);
               reader.onloadend = async () => {
                   const base64data = reader.result;
                   try {
@@ -830,7 +874,8 @@ export const IncomingFiles: React.FC<IncomingFilesProps> = ({ user, notify }) =>
     try {
         // En importación masiva usamos 'upsert' por el número de expediente si tienes una constraint, 
         // pero aquí simulamos inserción limpia
-        const { error } = await supabase.from('expedientes').insert(csvPreview);
+        const recordsToInsert = csvPreview.map(record => ({ ...record, created_by: user.id }));
+        const { error } = await supabase.from('expedientes').insert(recordsToInsert);
         if (error) throw error;
         if (notify) notify(`Importación exitosa: ${csvPreview.length} expedientes.`);
         setIsImportModalOpen(false);
@@ -1320,14 +1365,48 @@ export const IncomingFiles: React.FC<IncomingFilesProps> = ({ user, notify }) =>
                                             )}
                                         </div>
 
-                                        <div className="mt-auto pt-6 border-t border-slate-100 flex flex-col gap-3">
+                                        <div className="mt-auto pt-4 border-t border-slate-100 flex flex-col gap-3">
+                                            <button 
+                                                onClick={downloadDraftOnly} 
+                                                disabled={isSubmitting}
+                                                className="w-full h-12 bg-white text-primary border-2 border-primary rounded-xl text-xs font-black uppercase hover:bg-slate-50 transition-all flex items-center justify-center gap-2"
+                                            >
+                                                <span className="material-symbols-outlined">print</span>
+                                                DESCARGAR DOCUMENTO (PARA FIRMA)
+                                            </button>
+                                            
+                                            <div className="mt-2 pt-4 border-t border-slate-100 flex flex-col gap-3">
+                                                <label className="flex flex-col gap-1.5">
+                                                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Opcional: Adjuntar PDF firmado</span>
+                                                    <input 
+                                                        type="file" 
+                                                        accept="application/pdf"
+                                                        onChange={(e) => setSignedPdf(e.target.files?.[0] || null)}
+                                                        className="text-xs file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20 cursor-pointer"
+                                                    />
+                                                    <span className="text-[10px] text-slate-400 ml-1">Si adjunta, este archivo reemplazará al autogenerado.</span>
+                                                </label>
+                                            </div>
+
+                                            {!signedPdf && (
+                                                <label className="flex items-center gap-2 cursor-pointer mt-1 ml-1 mb-2">
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={downloadLocal} 
+                                                        onChange={(e) => setDownloadLocal(e.target.checked)}
+                                                        className="rounded text-primary focus:ring-primary w-4 h-4 cursor-pointer"
+                                                    />
+                                                    <span className="text-xs font-bold text-slate-700">Descargar copia local autogenerada</span>
+                                                </label>
+                                            )}
+
                                             <button 
                                                 onClick={finalizeAndDownload} 
                                                 disabled={isSubmitting}
-                                                className="w-full h-14 bg-primary text-white rounded-2xl text-xs font-black uppercase shadow-xl shadow-primary/30 active:scale-95 transition-all flex items-center justify-center gap-2"
+                                                className="w-full h-14 bg-primary text-white rounded-2xl text-xs font-black uppercase shadow-xl shadow-primary/30 active:scale-95 transition-all flex items-center justify-center gap-2 mt-2"
                                             >
-                                                {isSubmitting ? <span className="material-symbols-outlined animate-spin">progress_activity</span> : <span className="material-symbols-outlined">download</span>}
-                                                {isSubmitting ? 'GENERANDO...' : 'FINALIZAR Y DESCARGAR PDF'}
+                                                {isSubmitting ? <span className="material-symbols-outlined animate-spin">progress_activity</span> : <span className="material-symbols-outlined">send</span>}
+                                                {isSubmitting ? 'FINALIZANDO...' : (signedPdf ? 'FINALIZAR Y ENVIAR PDF ADJUNTO' : 'FINALIZAR CON DOCUMENTO AUTOGENERADO')}
                                             </button>
                                             <button onClick={() => setAttendStep(3)} className="w-full py-3 text-xs font-black text-slate-400 uppercase tracking-widest hover:text-slate-600 transition-colors">
                                                 ATRÁS

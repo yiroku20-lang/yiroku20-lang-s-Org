@@ -25,6 +25,7 @@ import { StaffManagement } from './pages/StaffManagement';
 import { StaffConfirmation } from './pages/StaffConfirmation';
 import { MeetingMinutes } from './pages/MeetingMinutes';
 import { Login } from './pages/Login';
+import { Unsubscribe } from './pages/Unsubscribe';
 import { ChatBot } from './components/ChatBot';
 import { ToastContainer } from './components/Toast';
 import { User, ToastMessage } from './types';
@@ -81,6 +82,7 @@ function App() {
         <Routes>
           <Route path="/login" element={<Login onLogin={(u) => { setUser(u); addToast(`Bienvenido, ${u.name}`); }} />} />
           <Route path="/staff-confirm" element={<StaffConfirmation />} />
+          <Route path="/unsubscribe" element={<Unsubscribe />} />
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
         <ToastContainer toasts={toasts} onClose={removeToast} />
@@ -93,7 +95,17 @@ function App() {
       <div className="flex h-screen w-full bg-[#f8fafc] overflow-hidden">
         <ChatBot />
         <ToastContainer toasts={toasts} onClose={removeToast} />
-        <Sidebar user={user} onLogout={async () => { setUser(null); await supabase.auth.signOut(); }} isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+        <Sidebar user={user} onLogout={async () => {
+          try {
+              await supabase.from('tramite_seguimiento').insert([{
+                  action_type: 'Sistema',
+                  description: 'Cierre de Sesión',
+                  user_name: user?.name || 'Usuario'
+              }]);
+          } catch(e) {}
+          setUser(null); 
+          await supabase.auth.signOut(); 
+        }} isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
         
         <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#f8fafc] relative">
           <header className="md:hidden flex items-center justify-between p-4 bg-white border-b border-slate-200 shrink-0">
@@ -159,6 +171,7 @@ function App() {
               )}
               
               <Route path="/staff-confirm" element={<StaffConfirmation />} />
+              <Route path="/unsubscribe" element={<Unsubscribe />} />
 
               <Route path="/settings" element={<Settings user={user} notify={addToast} />} />
               <Route path="*" element={<Navigate to="/" replace />} />

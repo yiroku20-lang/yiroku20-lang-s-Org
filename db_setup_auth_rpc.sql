@@ -1,5 +1,8 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
+-- Eliminar la función existente primero
+DROP FUNCTION IF EXISTS admin_create_user(text, text, text, text, jsonb);
+
 -- Función para crear un usuario en supabase auth y public.usuarios
 CREATE OR REPLACE FUNCTION admin_create_user(
   p_dni text,
@@ -11,7 +14,7 @@ CREATE OR REPLACE FUNCTION admin_create_user(
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   new_user_id uuid;
@@ -28,10 +31,10 @@ BEGIN
   -- Generar nueva ID de usuario
   new_user_id := gen_random_uuid();
   
-  -- Encriptar la contraseña (Supabase usa bcrypt)
+  -- Encriptar la contraseña (usando el gen_salt explícito)
   encrypted_pw := extensions.crypt(p_password, extensions.gen_salt('bf'));
 
-  -- Insertar en auth.users (Evadiendo la API para crearlo directamente con acceso de base de datos)
+  -- Insertar en auth.users
   INSERT INTO auth.users (
     instance_id, id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at
   ) VALUES (
@@ -40,9 +43,9 @@ BEGIN
 
   -- Insertar en auth.identities
   INSERT INTO auth.identities (
-    id, user_id, identity_data, provider, created_at, updated_at
+    id, provider_id, user_id, identity_data, provider, created_at, updated_at
   ) VALUES (
-    new_user_id, new_user_id, format('{"sub":"%s","email":"%s"}', new_user_id::text, user_email)::jsonb, 'email', now(), now()
+    gen_random_uuid(), new_user_id::text, new_user_id, jsonb_build_object('sub', new_user_id, 'email', user_email), 'email', now(), now()
   );
 
   -- Insertar en public.usuarios (perfil)
@@ -52,6 +55,9 @@ BEGIN
 END;
 $$;
 
+-- Eliminar la función existente primero
+DROP FUNCTION IF EXISTS admin_update_user_password(uuid, text);
+
 -- Función para actualizar la contraseña de un usuario
 CREATE OR REPLACE FUNCTION admin_update_user_password(
   p_user_id uuid,
@@ -60,7 +66,7 @@ CREATE OR REPLACE FUNCTION admin_update_user_password(
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   encrypted_pw text;
@@ -74,7 +80,7 @@ BEGIN
       updated_at = now()
   WHERE id = p_user_id;
 
-  -- Actualizar en public.usuarios (para mantener la referencia visual actual, aunque idealmente se debería dejar de guardar en texto plano por seguridad a futuro)
+  -- Actualizar en public.usuarios 
   UPDATE public.usuarios
   SET password = p_new_password
   WHERE id = p_user_id;
