@@ -209,7 +209,14 @@ export const VacancyAnalytics: React.FC<VacancyAnalyticsProps> = ({ onBack, noti
           ]);
           
           const escuelas = Object.values(tableDataGrouped[area]).sort((a,b) => a.escuela.localeCompare(b.escuela));
+          
+          const areaTotals: Record<string, number> = {};
+          selectedYears.forEach(y => areaTotals[y] = 0);
+
           escuelas.forEach(esc => {
+            selectedYears.forEach(y => {
+              areaTotals[y] += (esc[y] || 0);
+            });
             const row = [
               { content: esc.escuela },
               ...selectedYears.map(y => ({ content: (esc[y] || 0).toString(), styles: { halign: 'center' } })),
@@ -217,6 +224,13 @@ export const VacancyAnalytics: React.FC<VacancyAnalyticsProps> = ({ onBack, noti
             ];
             bodyRows.push(row);
           });
+          
+          // Subtotal row
+          bodyRows.push([
+            { content: `SUBTOTAL ÁREA ${area}`, styles: { halign: 'right', fontStyle: 'bold', fillColor: [248, 250, 252] } }, // slate-50
+            ...selectedYears.map(y => ({ content: areaTotals[y].toString(), styles: { halign: 'center', fontStyle: 'bold', textColor: [123, 21, 35], fillColor: [248, 250, 252] } })),
+            { content: '', _trendData: selectedYears.map(y => areaTotals[y]), styles: { fillColor: [248, 250, 252] } }
+          ]);
         });
 
         const footRow = [
@@ -476,35 +490,63 @@ export const VacancyAnalytics: React.FC<VacancyAnalyticsProps> = ({ onBack, noti
                   </tr>
                 </thead>
                 <tbody>
-                  {Object.keys(tableDataGrouped).sort().map(area => (
-                    <React.Fragment key={area}>
-                      <tr>
-                        <td colSpan={selectedYears.length + 2} className="bg-red-50 p-2 font-black text-[#7b1523] text-center uppercase tracking-widest border-y border-[#7b1523]/20 text-xs">
-                          Área {area}
-                        </td>
-                      </tr>
-                      {Object.values(tableDataGrouped[area]).sort((a,b) => a.escuela.localeCompare(b.escuela)).map(esc => {
-                        const sparklineData = selectedYears.map(y => ({ val: esc[y] || 0 }));
-                        return (
-                          <tr key={esc.escuela} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                            <td className="p-3 font-bold text-slate-700 text-xs truncate max-w-[250px]">{esc.escuela}</td>
-                            {selectedYears.map(y => (
-                              <td key={y} className="p-3 text-center text-slate-600 font-medium">{esc[y] || 0}</td>
-                            ))}
-                            <td className="p-1 px-3 text-center">
-                              <div className="w-[100px] h-[25px] inline-block mt-1">
-                                <ResponsiveContainer width="100%" height="100%">
-                                  <LineChart data={sparklineData}>
-                                    <Line type="monotone" dataKey="val" stroke="#7b1523" strokeWidth={2} dot={false} isAnimationActive={false} />
-                                  </LineChart>
-                                </ResponsiveContainer>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </React.Fragment>
-                  ))}
+                  {Object.keys(tableDataGrouped).sort().map(area => {
+                    const escuelas = Object.values(tableDataGrouped[area]).sort((a,b) => a.escuela.localeCompare(b.escuela));
+                    const areaTotals: Record<string, number> = {};
+                    selectedYears.forEach(y => areaTotals[y] = 0);
+                    escuelas.forEach(esc => {
+                      selectedYears.forEach(y => {
+                        areaTotals[y] += (esc[y] || 0);
+                      });
+                    });
+                    const subtotalSparklineData = selectedYears.map(y => ({ val: areaTotals[y] }));
+
+                    return (
+                      <React.Fragment key={area}>
+                        <tr>
+                          <td colSpan={selectedYears.length + 2} className="bg-red-50 p-2 font-black text-[#7b1523] text-center uppercase tracking-widest border-y border-[#7b1523]/20 text-xs">
+                            Área {area}
+                          </td>
+                        </tr>
+                        {escuelas.map(esc => {
+                          const sparklineData = selectedYears.map(y => ({ val: esc[y] || 0 }));
+                          return (
+                            <tr key={esc.escuela} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                              <td className="p-3 font-bold text-slate-700 text-xs whitespace-normal min-w-[280px]">{esc.escuela}</td>
+                              {selectedYears.map(y => (
+                                <td key={y} className="p-3 text-center text-slate-600 font-medium">{esc[y] || 0}</td>
+                              ))}
+                              <td className="p-1 px-3 text-center">
+                                <div className="w-[100px] h-[25px] inline-block mt-1">
+                                  <ResponsiveContainer width="100%" height="100%">
+                                    <LineChart data={sparklineData}>
+                                      <Line type="monotone" dataKey="val" stroke="#7b1523" strokeWidth={2} dot={false} isAnimationActive={false} />
+                                    </LineChart>
+                                  </ResponsiveContainer>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {/* Subtotal row */}
+                        <tr className="bg-slate-50 border-b border-slate-200">
+                          <td className="p-3 font-black text-slate-800 text-xs text-right uppercase">Subtotal Área {area}</td>
+                          {selectedYears.map(y => (
+                            <td key={`subtotal-${y}`} className="p-3 text-center text-[#7b1523] font-black">{areaTotals[y]}</td>
+                          ))}
+                          <td className="p-1 px-3 text-center">
+                            <div className="w-[100px] h-[25px] inline-block mt-1">
+                              <ResponsiveContainer width="100%" height="100%">
+                                <LineChart data={subtotalSparklineData}>
+                                  <Line type="monotone" dataKey="val" stroke="#7b1523" strokeWidth={2} dot={false} isAnimationActive={false} />
+                                </LineChart>
+                              </ResponsiveContainer>
+                            </div>
+                          </td>
+                        </tr>
+                      </React.Fragment>
+                    );
+                  })}
                 </tbody>
                 <tfoot className="bg-[#7b1523] border-t border-[#7b1523]">
                   <tr>

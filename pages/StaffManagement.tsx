@@ -640,7 +640,7 @@ UNSAAC`);
 
     try {
         for (const persona of pendientes) {
-            const confirmLink = `${window.location.origin}/#/staff-confirm?id=${persona.id}`;
+            const confirmLinkBase = `${window.location.origin}/#/staff-confirm?id=${persona.id}`;
             const formattedLimite = emailFechaLimite 
                 ? new Date(emailFechaLimite).toLocaleString('es-PE', { dateStyle: 'long', timeStyle: 'short' })
                 : '';
@@ -651,8 +651,18 @@ UNSAAC`);
                 .replace(/{cargo}/g, persona.cargo)
                 .replace(/{fecha_examen}/g, emailFechaExamen)
                 .replace(/{fecha_limite}/g, formattedLimite)
-                .replace(/{enlace_confirmacion}/g, confirmLink);
+                .replace(/{enlace_confirmacion}/g, `Confirmar: ${confirmLinkBase}&action=confirm\nRechazar: ${confirmLinkBase}&action=decline`);
                 
+            const buttonsHtml = `
+              <div style="text-align: center; margin: 30px 0; font-family: sans-serif;">
+                <p style="margin-bottom: 20px; font-weight: bold; color: #1e1e24;">Por favor, indíquenos su disponibilidad:</p>
+                <div style="display: flex; justify-content: center; gap: 16px;">
+                  <a href="${confirmLinkBase}&action=confirm" style="display:inline-block;padding:12px 24px;background-color:#10b981;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:bold;font-size:14px;min-width:120px;">SÍ, CONFIRMO</a>
+                  <a href="${confirmLinkBase}&action=decline" style="display:inline-block;padding:12px 24px;background-color:#ef4444;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:bold;font-size:14px;min-width:120px;">NO PODRÉ</a>
+                </div>
+              </div>
+            `;
+
             const htmlBody = emailTemplate
                 .replace(/\n/g, '<br/>')
                 .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
@@ -660,7 +670,7 @@ UNSAAC`);
                 .replace(/{cargo}/g, persona.cargo)
                 .replace(/{fecha_examen}/g, emailFechaExamen)
                 .replace(/{fecha_limite}/g, formattedLimite)
-                .replace(/{enlace_confirmacion}/g, `<div style="text-align: center; margin: 20px 0;"><a href="${confirmLink}" style="display:inline-block;padding:12px 24px;background-color:#8b0000;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold;font-family:sans-serif;font-size:14px;text-align:center;">Acceder a la Plataforma de Confirmación / Rechazo</a></div>`);
+                .replace(/{enlace_confirmacion}/g, buttonsHtml);
             
             const res = await fetch('/api/send-email', {
                 method: 'POST',

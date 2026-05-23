@@ -49,6 +49,18 @@ export const ScheduleBuilderModal: React.FC<ScheduleBuilderProps> = ({ isOpen, o
     
     const [isSaving, setIsSaving] = useState(false);
     const [isSendingEmail, setIsSendingEmail] = useState(false);
+    const [showEmailModal, setShowEmailModal] = useState(false);
+    const [emailTarget, setEmailTarget] = useState<'all' | string>('all');
+    const [emailSubject, setEmailSubject] = useState('');
+    const [emailBody, setEmailBody] = useState('');
+
+    useEffect(() => {
+        if (showEmailModal) {
+            setEmailSubject(`Horario de Labores - ${procesoName} - ${cargo}`);
+            setEmailBody(`Estimado/a {{nombre}},\n\nAdjunto su horario de labores para el proceso ${procesoName} en su rol de ${cargo}.\n\nAtentamente,\nDirección de Admisión.\nUNSAAC`);
+        }
+    }, [showEmailModal, procesoName, cargo]);
+
     const [draggedUser, setDraggedUser] = useState<{userId: string, groupId: string} | null>(null);
     const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
     
@@ -111,6 +123,18 @@ export const ScheduleBuilderModal: React.FC<ScheduleBuilderProps> = ({ isOpen, o
                     if (!dayObj) {
                         dayObj = { date: shiftData.fecha, shifts: [] };
                         newSchedule.push(dayObj);
+                    }
+                    
+                    const existingShiftForGroup = dayObj.shifts.find(s => s.group.id === g!.id);
+                    if (!existingShiftForGroup) {
+                        dayObj.shifts.push({
+                            shiftInfo: {
+                                id: `s-${Date.now()}-${Math.random()}`,
+                                startTime: shiftData.hora_inicio,
+                                endTime: shiftData.hora_fin
+                            },
+                            group: g!
+                        });
                     }
                     
                     newOverrides[`${shiftData.fecha}_${ud.id}`] = {
@@ -327,34 +351,46 @@ export const ScheduleBuilderModal: React.FC<ScheduleBuilderProps> = ({ isOpen, o
         doc.save(`Horario_${cargo}_${procesoName}.pdf`);
     };
 
-    const notifyUsers = async () => {
+    const handleSendEmail = async () => {
         if (!generatedSchedule || groups.length === 0) return;
         
-        const emails = users.map(u => u.email_personal).filter(e => !!e);
-        if (emails.length === 0) {
-            return alert("No hay correos registrados para estos usuarios.");
-        }
-
         setIsSendingEmail(true);
         try {
             const doc = generatePDFDoc();
             const pdfBase64 = doc.output('datauristring').split(',')[1];
             
-            const res = await fetch('/api/send-email', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    to: emails.join(','),
-                    subject: `Horario de Labores - ${procesoName} - ${cargo}`,
-                    text: `Estimados,\n\nAdjunto su horario de labores para el proceso ${procesoName} en su rol de ${cargo}.\n\nAtentamente,\nDirección de Admisión.\nUNSAAC`,
-                    html: `<p>Estimados,</p><p>Adjunto su horario de labores para el proceso <strong>${procesoName}</strong> en su rol de <strong>${cargo}</strong>.</p><br><p>Atentamente,<br>Dirección de Admisión.<br>UNSAAC</p>`,
-                    attachmentBase64: pdfBase64,
-                    filename: `Horario_${cargo}_${procesoName}.pdf`
-                })
-            });
+            let targets = users.filter(u => u.email_personal);
+            if (emailTarget !== 'all') {
+                targets = targets.filter(u => u.id === emailTarget);
+            }
 
-            if (!res.ok) throw new Error("Error en servidor al enviar correos");
+            if (targets.length === 0) {
+                alert("No hay correos registrados para el destinatario o destinatarios seleccionados.");
+                setIsSendingEmail(false);
+                return;
+            }
+
+            for (const u of targets) {
+                const bodyText = emailBody.replace(/{{nombre}}/g, u.nombres + ' ' + u.apellidos);
+                const htmlBody = emailBody.replace(/{{nombre}}/g, `<strong>${u.nombres} ${u.apellidos}</strong>`).replace(/\n/g, '<br/>');
+
+                const res = await fetch('/api/send-email', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        to: u.email_personal,
+                        subject: emailSubject,
+                        text: bodyText,
+                        html: htmlBody,
+                        attachmentBase64: pdfBase64,
+                        filename: `Horario_${cargo}_${procesoName}.pdf`
+                    })
+                });
+                if (!res.ok) throw new Error(`Error en servidor enviando a ${u.nombres}`);
+            }
+
             alert("Correos enviados exitosamente.");
+            setShowEmailModal(false);
         } catch (e: any) {
             alert("Error al enviar correos: " + e.message);
         } finally {
@@ -679,7 +715,7 @@ export const ScheduleBuilderModal: React.FC<ScheduleBuilderProps> = ({ isOpen, o
                                     </div>
                                     <div className="flex items-center gap-2 shrink-0">
                                         <button 
-                                            onClick={notifyUsers} 
+                                            onClick={() => setShowEmailModal(true)} 
                                             disabled={isSendingEmail}
                                             className="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2.5 rounded-xl font-black uppercase tracking-widest text-xs active:scale-95 transition-all shadow-lg flex items-center gap-2 disabled:opacity-50"
                                         >
@@ -833,6 +869,82 @@ export const ScheduleBuilderModal: React.FC<ScheduleBuilderProps> = ({ isOpen, o
                     </div>
                 </div>
             </div>
+
+            {/* Email Notification Modal */}
+            {showEmailModal && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+                    <div className="bg-white rounded-2xl w-full max-w-2xl shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
+                        <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                            <h3 className="font-bold text-slate-900 flex items-center gap-2">
+                                <span className="material-symbols-outlined text-primary">mail</span> 
+                                Enviar Horarios por Correo
+                            </h3>
+                            <button onClick={() => setShowEmailModal(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                                <span className="material-symbols-outlined shrink-0 text-xl block">close</span>
+                            </button>
+                        </div>
+                        <div className="p-6 overflow-y-auto flex-1 flex flex-col gap-4">
+                            <div className="p-4 rounded-xl border border-blue-100 bg-blue-50 text-blue-800 text-sm flex gap-3">
+                                <span className="material-symbols-outlined shrink-0 text-blue-600">info</span>
+                                <div>
+                                    <p className="font-bold mb-1">Información sobre el envío</p>
+                                    <p>Se adjuntará automáticamente el archivo PDF <strong>Horario_{cargo}_{procesoName}.pdf</strong> con el horario generado a cada correo.</p>
+                                    <p className="mt-1 text-xs">Usa <strong>{`{{nombre}}`}</strong> en el cuerpo del correo para personalizarlo con el nombre del destinatario.</p>
+                                </div>
+                            </div>
+
+                            <div className="grid gap-2">
+                                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Destinatario</label>
+                                <select 
+                                    className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium"
+                                    value={emailTarget}
+                                    onChange={(e) => setEmailTarget(e.target.value)}
+                                >
+                                    <option value="all">A todos los administradores con correo</option>
+                                    {users.filter(u => u.email_personal).map(u => (
+                                        <option key={u.id} value={u.id}>{u.nombres} {u.apellidos}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="grid gap-2">
+                                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Asunto</label>
+                                <input 
+                                    type="text" 
+                                    className="w-full border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500 text-sm font-bold"
+                                    value={emailSubject}
+                                    onChange={(e) => setEmailSubject(e.target.value)}
+                                />
+                            </div>
+
+                            <div className="grid gap-2">
+                                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Mensaje</label>
+                                <textarea 
+                                    rows={8}
+                                    className="w-full border border-slate-200 rounded-xl p-4 outline-none focus:ring-2 focus:ring-blue-500 text-sm resize-none whitespace-pre-wrap font-medium"
+                                    value={emailBody}
+                                    onChange={(e) => setEmailBody(e.target.value)}
+                                />
+                            </div>
+                        </div>
+                        <div className="p-4 border-t border-slate-100 flex justify-end gap-3 bg-slate-50">
+                            <button onClick={() => setShowEmailModal(false)} className="px-5 py-2 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-200 transition-colors">Cancelar</button>
+                            <button 
+                                onClick={handleSendEmail} 
+                                disabled={isSendingEmail}
+                                className="px-5 py-2 rounded-xl text-sm font-black tracking-widest uppercase text-white bg-blue-600 hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+                            >
+                                {isSendingEmail ? (
+                                    <span className="material-symbols-outlined text-[18px] animate-spin">refresh</span>
+                                ) : (
+                                    <span className="material-symbols-outlined text-[18px]">send</span> 
+                                )}
+                                {isSendingEmail ? 'Enviando...' : 'Enviar Correos'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

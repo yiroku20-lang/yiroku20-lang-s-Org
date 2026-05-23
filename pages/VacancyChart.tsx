@@ -35,6 +35,7 @@ export const VacancyChart: React.FC<{ user: User, notify: (msg: string, type?: T
   const [modalidades, setModalidades] = useState<CVModalidad[]>([]);
   const [vacantesMap, setVacantesMap] = useState<Record<string, number | ''>>({}); // key: `${escuela_id}_${modalidad_id}`
   const [isSavingCell, setIsSavingCell] = useState(false);
+  const [isEditLocked, setIsEditLocked] = useState(true);
 
   // Filters for preview
   const [filterArea, setFilterArea] = useState<string>('Todas');
@@ -641,7 +642,7 @@ export const VacancyChart: React.FC<{ user: User, notify: (msg: string, type?: T
 
   const page1Areas = filteredAreas.filter(a => ['A', 'B'].includes(a));
   const page2Areas = filteredAreas.filter(a => !['A', 'B'].includes(a));
-  const pdfPages = [];
+  const pdfPages: string[][] = [];
   if (page1Areas.length > 0) pdfPages.push(page1Areas);
   if (page2Areas.length > 0) pdfPages.push(page2Areas);
 
@@ -777,6 +778,14 @@ export const VacancyChart: React.FC<{ user: User, notify: (msg: string, type?: T
 
               {view === 'editor' && selectedCuadro?.estado === 'Borrador' && (
                 <>
+                  <button 
+                    onClick={() => setIsEditLocked(!isEditLocked)} 
+                    className={`flex items-center gap-2 rounded-xl h-10 px-4 text-xs font-bold shadow-sm transition-all ${isEditLocked ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'}`}
+                    title={isEditLocked ? 'Desbloquear edición' : 'Bloquear edición'}
+                  >
+                    <span className="material-symbols-outlined text-[18px]">{isEditLocked ? 'lock' : 'lock_open'}</span>
+                    {isEditLocked ? 'Desbloquear Edición' : 'Bloquear Edición'}
+                  </button>
                   <button onClick={() => { setEditingModalityId(null); setModForm({ semestre: selectedCuadro?.anio + '-I', nombre: '', peso_porcentaje: '100%', orden: modalidades.length + 1 }); setIsModalidadModalOpen(true); }} className="flex items-center gap-2 rounded-xl h-10 px-4 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold shadow-sm transition-all">
                     <span className="material-symbols-outlined text-[18px]">view_column</span>
                     Agregar Modalidad
@@ -902,14 +911,14 @@ export const VacancyChart: React.FC<{ user: User, notify: (msg: string, type?: T
                           <tr 
                             key={escuela.id} 
                             className="hover:bg-blue-50/30 transition-colors group/row"
-                            draggable={selectedCuadro?.estado === 'Borrador'}
+                            draggable={selectedCuadro?.estado === 'Borrador' && !isEditLocked}
                             onDragStart={(e) => handleDragStart(e, escuela.id)}
                             onDragOver={(e) => e.preventDefault()}
                             onDrop={(e) => handleDrop(e, escuela.id, area)}
                           >
                             <td className="p-2 border-r border-slate-200 sticky left-0 bg-white group-hover/row:bg-blue-50/30 z-10 transition-colors">
                               <div className="flex items-center gap-2">
-                                {selectedCuadro?.estado === 'Borrador' && (
+                                {selectedCuadro?.estado === 'Borrador' && !isEditLocked && (
                                   <span className="material-symbols-outlined text-slate-300 cursor-grab active:cursor-grabbing text-[16px] hover:text-indigo-500 transition-colors shrink-0" title="Arrastrar para reordenar">drag_indicator</span>
                                 )}
                                 <div className="flex-1 min-w-0">
@@ -918,7 +927,8 @@ export const VacancyChart: React.FC<{ user: User, notify: (msg: string, type?: T
                                       value={escuela.alias ?? escuela.nombre ?? ''}
                                       onChange={(e) => handleAliasChange(escuela.id, e.target.value)}
                                       onBlur={(e) => saveAlias(escuela.id, e.target.value)}
-                                      className="font-bold text-slate-700 uppercase bg-transparent border-b border-transparent hover:border-slate-300 focus:border-indigo-500 outline-none w-full text-xs transition-colors"
+                                      readOnly={isEditLocked}
+                                      className={`font-bold text-slate-700 uppercase bg-transparent border-b border-transparent outline-none w-full text-xs transition-colors ${isEditLocked ? 'cursor-not-allowed opacity-80' : 'hover:border-slate-300 focus:border-indigo-500'}`}
                                       title={`Nombre original: ${escuela.nombre}`}
                                       placeholder={escuela.nombre}
                                     />
@@ -946,7 +956,8 @@ export const VacancyChart: React.FC<{ user: User, notify: (msg: string, type?: T
                                           min="0"
                                           value={vacantesMap[`${escuela.id}_${m.id}`] || ''}
                                           onChange={(e) => handleCellChange(escuela.id, m.id, e.target.value)}
-                                          className="w-full h-full p-2 text-center outline-none focus:bg-blue-50 focus:ring-2 focus:ring-inset focus:ring-blue-400 font-medium text-slate-700 bg-transparent"
+                                          readOnly={isEditLocked}
+                                          className={`w-full h-full p-2 text-center outline-none font-medium text-slate-700 bg-transparent ${isEditLocked ? 'cursor-not-allowed opacity-80' : 'focus:bg-blue-50 focus:ring-2 focus:ring-inset focus:ring-blue-400'}`}
                                         />
                                       )}
                                     </td>
@@ -1131,27 +1142,32 @@ export const VacancyChart: React.FC<{ user: User, notify: (msg: string, type?: T
               <div className="flex-1 overflow-auto bg-slate-100 p-4 md:p-8 rounded-2xl border border-slate-200">
                 <div ref={previewRef} className="mx-auto" style={{ width: 'max-content', minWidth: '100%', fontFamily: "'Poppins', sans-serif" }}>
                   {pdfPages.map((pageAreas, pageIndex) => (
-                    <div key={pageIndex} className={`bg-white p-4 shadow-sm ${pageIndex > 0 ? 'page-break-row mt-8' : ''}`}>
-                      {/* Header for PDF */}
-                      <div className="flex items-center justify-between border-b-2 pb-2 mb-4" style={{ borderColor: '#7b1523' }}>
-                        <div className="w-32 h-16 flex items-center justify-center">
+                    <div key={pageIndex} className={`bg-white p-2 shadow-sm flex items-stretch ${pageIndex > 0 ? 'page-break-row mt-8' : ''}`}>
+                      {/* Vertical Header for PDF */}
+                      <div className="flex flex-col items-center justify-between border-r-2 pr-4 mr-2 w-[80px] shrink-0 pt-4" style={{ borderColor: '#7b1523' }}>
+                        <div className="w-16 h-16 flex items-center justify-center shrink-0">
                           <img src="https://cnqpzyanmmwspvemcfeb.supabase.co/storage/v1/object/public/logos/escudo%20oficial-02%20(2).png" alt="UNSAAC" className="h-full object-contain" crossOrigin="anonymous" />
                         </div>
-                        <div className="text-center px-4">
-                          <h2 className="text-lg font-black uppercase tracking-widest" style={{ color: '#7b1523' }}>Universidad Nacional de San Antonio Abad del Cusco</h2>
-                          <h3 className="text-sm font-bold uppercase tracking-widest mt-1" style={{ color: '#9b192d' }}>Dirección de Admisión</h3>
-                          <p className="text-xs font-medium text-slate-500 mt-1">Cuadro de Vacantes {selectedCuadro?.anio}</p>
+                        
+                        <div className="flex-1 flex flex-col items-center justify-center w-full relative overflow-visible min-h-[500px]">
+                          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-90 whitespace-nowrap flex flex-col items-center gap-1 w-[800px]">
+                            <h1 className="text-[#7b1523] text-lg font-black tracking-widest uppercase m-0 leading-tight">UNIVERSIDAD NACIONAL DE SAN ANTONIO ABAD DEL CUSCO</h1>
+                            <h2 className="text-[#9b192d] text-sm font-bold tracking-widest uppercase m-0 leading-tight">DIRECCIÓN DE ADMISIÓN</h2>
+                            <p className="text-slate-600 text-[11px] font-medium tracking-widest uppercase m-0 leading-tight">CUADRO DE VACANTES {selectedCuadro?.anio}</p>
+                          </div>
                         </div>
-                        <div className="w-32 h-16 flex items-center justify-center">
+
+                        <div className="w-16 h-16 flex items-center justify-center shrink-0 mb-4">
                           <img src="https://cnqpzyanmmwspvemcfeb.supabase.co/storage/v1/object/public/logos/logo%20admision%201.png" alt="Admisión" className="h-full object-contain" crossOrigin="anonymous" />
                         </div>
                       </div>
 
-                      {/* Table */}
-                      <table className="w-full text-left border-collapse text-[9px]">
-                        <thead>
-                          <tr>
-                            <th className="p-1 border" style={{ backgroundColor: '#7b1523', color: 'white', borderColor: '#9b192d', minWidth: '200px' }} rowSpan={2}>Escuelas Profesionales</th>
+                      {/* Table Container */}
+                      <div className="flex-1 overflow-hidden pl-1">
+                        <table className="w-full text-left border-collapse text-[10px]" style={{ backgroundColor: 'white' }}>
+                          <thead>
+                            <tr>
+                              <th className="p-1 border" style={{ backgroundColor: '#7b1523', color: 'white', borderColor: '#9b192d', width: '190px', minWidth: '190px', maxWidth: '190px' }} rowSpan={2}>Escuelas Profesionales</th>
                             {filteredSemestres.map(sem => {
                               const modsInSem = filteredModalidades.filter(m => m.semestre === sem);
                               return (
@@ -1160,7 +1176,13 @@ export const VacancyChart: React.FC<{ user: User, notify: (msg: string, type?: T
                                 </th>
                               );
                             })}
-                            <th className="p-1 border text-center font-black" style={{ backgroundColor: '#e8a134', color: 'white', borderColor: '#d69020' }} rowSpan={2}>Total General</th>
+                            <th className="p-0 border text-center font-black" style={{ backgroundColor: '#e8a134', color: 'white', borderColor: '#d69020', width: '50px', minWidth: '50px', maxWidth: '50px' }} rowSpan={2}>
+                              <div className="relative w-[50px] h-[180px] flex items-center justify-center mx-auto overflow-visible">
+                                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-90 w-[170px] text-center text-[12px] font-black leading-snug tracking-wide uppercase">
+                                  Total General
+                                </div>
+                              </div>
+                            </th>
                           </tr>
                           <tr>
                             {filteredSemestres.map(sem => {
@@ -1168,45 +1190,19 @@ export const VacancyChart: React.FC<{ user: User, notify: (msg: string, type?: T
                               return (
                                 <React.Fragment key={`mods-${sem}`}>
                                   {modsInSem.map(m => (
-                                    <th key={m.id} className="p-0 border text-center font-medium" style={{ backgroundColor: '#f8f9fa', color: '#7b1523', borderColor: '#e1e1e1', height: '140px', verticalAlign: 'bottom', minWidth: '30px' }}>
-                                      <div style={{ width: '30px', margin: '0 auto' }}>
-                                        <svg width="30" height="130" xmlns="http://www.w3.org/2000/svg">
-                                          {splitTextIntoLines(m.nombre, 22).map((line, i, arr) => (
-                                            <text
-                                              key={i}
-                                              x="-125"
-                                              y={(30 - (arr.length * 9)) / 2 + 7 + (i * 9)}
-                                              transform="rotate(-90)"
-                                              fill="currentColor"
-                                              fontSize="7.5"
-                                              fontWeight="600"
-                                              fontFamily="Poppins, sans-serif"
-                                            >
-                                              {line}
-                                            </text>
-                                          ))}
-                                        </svg>
+                                    <th key={m.id} className="p-0 border text-center font-medium" style={{ backgroundColor: '#f8f9fa', color: '#7b1523', borderColor: '#e1e1e1', height: '180px', verticalAlign: 'middle', minWidth: '38px', width: '38px' }}>
+                                      <div className="relative w-[38px] h-[180px] flex items-center justify-center mx-auto overflow-visible">
+                                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-90 w-[170px] text-center text-[10px] font-[600] leading-snug tracking-wide">
+                                          {m.nombre}
+                                        </div>
                                       </div>
                                     </th>
                                   ))}
-                                  <th className="p-0 border text-center font-bold" style={{ backgroundColor: '#f1f5f9', color: '#9b192d', borderColor: '#e1e1e1', height: '140px', verticalAlign: 'bottom', minWidth: '30px' }}>
-                                    <div style={{ width: '30px', margin: '0 auto' }}>
-                                      <svg width="30" height="130" xmlns="http://www.w3.org/2000/svg">
-                                        {splitTextIntoLines(`Total ${sem}`, 22).map((line, i, arr) => (
-                                          <text
-                                            key={i}
-                                            x="-125"
-                                            y={(30 - (arr.length * 9)) / 2 + 7 + (i * 9)}
-                                            transform="rotate(-90)"
-                                            fill="currentColor"
-                                            fontSize="8.5"
-                                            fontWeight="bold"
-                                            fontFamily="Poppins, sans-serif"
-                                          >
-                                            {line}
-                                          </text>
-                                        ))}
-                                      </svg>
+                                  <th className="p-0 border text-center font-bold" style={{ backgroundColor: '#f1f5f9', color: '#9b192d', borderColor: '#e1e1e1', height: '180px', verticalAlign: 'middle', minWidth: '40px', width: '40px' }}>
+                                    <div className="relative w-[40px] h-[180px] flex items-center justify-center mx-auto overflow-visible">
+                                      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-90 w-[170px] text-center text-[11px] font-bold leading-snug tracking-wide">
+                                        Total {sem}
+                                      </div>
                                     </div>
                                   </th>
                                 </React.Fragment>
@@ -1304,8 +1300,9 @@ export const VacancyChart: React.FC<{ user: User, notify: (msg: string, type?: T
                         )}
                       </table>
                     </div>
-                  ))}
-                </div>
+                  </div>
+                ))}
+              </div>
                 
                 {/* Hidden table for Excel export */}
                 <table className="hidden exportable-table">
