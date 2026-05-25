@@ -536,9 +536,11 @@ export const ScheduleBuilderModal: React.FC<ScheduleBuilderProps> = ({ isOpen, o
 
                     if (userScheduleArray.length > 0) {
                         updates.push(
-                            supabase.from('personal_sorteos')
-                                .update({ horario_data: userScheduleArray })
-                                .eq('id', user.id)
+                            Promise.resolve(
+                                supabase.from('personal_sorteos')
+                                    .update({ horario_data: userScheduleArray })
+                                    .eq('id', user.id)
+                            )
                         );
                     }
                 }
@@ -551,9 +553,11 @@ export const ScheduleBuilderModal: React.FC<ScheduleBuilderProps> = ({ isOpen, o
             for (const u of users) {
                 if (!allAssignedUserIds.has(u.id)) {
                      updates.push(
-                        supabase.from('personal_sorteos')
-                            .update({ horario_data: null })
-                            .eq('id', u.id)
+                         Promise.resolve(
+                             supabase.from('personal_sorteos')
+                                 .update({ horario_data: null })
+                                 .eq('id', u.id)
+                         )
                     );
                 }
             }

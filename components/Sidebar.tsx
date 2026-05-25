@@ -26,6 +26,7 @@ const navItems: (NavItem & { permission?: string })[] = [
   { label: 'Actas de Sesiones', icon: 'history_edu', path: '/actas', roles: ['Administrador', 'Director'], permission: 'view_actas' },
   { label: 'Agenda de Eventos', icon: 'calendar_today', path: '/calendar', permission: 'view_agenda' },
   { label: 'Control Asistencia', icon: 'fingerprint', path: '/attendance', permission: 'view_asistencia' },
+  { label: 'Adjudicaciones', icon: 'stars', path: '/adjudication', roles: ['Administrador', 'Director'] },
   { label: 'Auditoría y Logs', icon: 'bar_chart', path: '/logs', roles: ['Administrador'], permission: 'view_auditoria' },
   { label: 'Limpieza de Datos', icon: 'cleaning_services', path: '/data-cleanup', roles: ['Administrador'] },
   { label: 'Gestión de Personal', icon: 'badge', path: '/staff', roles: ['Administrador', 'Director'], permission: 'view_personal' },

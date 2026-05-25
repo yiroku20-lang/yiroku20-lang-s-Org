@@ -378,7 +378,30 @@ export interface Prospecto {
   resultados_test: TestVocacionalResultado[];
 }
 
+export interface AdjudicationRanking {
+  id: string;
+  orden_merito: number;
+  dni: string;
+  nombre: string;
+  area: string;
+  nota: number;
+  estado_asistencia: boolean;
+  escuela_adjudicada: string | null;
+  observacion: string | null;
+  modalidad: string;
+}
+
+export interface AdjudicationVacancy {
+  id: string;
+  escuela: string;
+  area: string;
+  vacantes_totales: number;
+  vacantes_disponibles: number;
+  modalidad: string;
+}
+
 export interface TestVocacionalResultado {
+
   id: string;
   fecha: string;
   perfil: string;

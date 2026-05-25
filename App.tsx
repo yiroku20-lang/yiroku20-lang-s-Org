@@ -24,6 +24,7 @@ import { DataCleanup } from './pages/DataCleanup';
 import { StaffManagement } from './pages/StaffManagement';
 import { StaffConfirmation } from './pages/StaffConfirmation';
 import { MeetingMinutes } from './pages/MeetingMinutes';
+import Adjudication from './pages/Adjudication';
 import { Login } from './pages/Login';
 import { Unsubscribe } from './pages/Unsubscribe';
 import { ChatBot } from './components/ChatBot';
@@ -118,7 +119,7 @@ function App() {
 
           <div className="flex-1 overflow-y-auto">
             <Routes>
-              <Route path="/" element={<Dashboard />} />
+              <Route path="/" element={<Dashboard user={user} />} />
               <Route path="/incoming" element={<IncomingFiles user={user} notify={addToast} />} />
               <Route path="/outgoing" element={<OutgoingFiles user={user} />} />
               <Route path="/lookup" element={<StudentLookup user={user} />} />
@@ -153,6 +154,9 @@ function App() {
               {(user.role === 'Administrador' || user.role === 'Director' || (user.role === 'Operador' && user.permissions?.includes('view_actas'))) && (
                 <Route path="/actas" element={<MeetingMinutes user={user} notify={addToast} />} />
               )}
+              {/* Adjudicación */}
+              <Route path="/adjudication" element={<Adjudication />} />
+              
               {/* Agenda / Calendario */}
               {(user.role === 'Administrador' || (user.role === 'Operador' && user.permissions?.includes('view_agenda'))) && (
                 <Route path="/calendar" element={<CalendarEvents user={user} notify={addToast} />} />

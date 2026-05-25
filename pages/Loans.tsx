@@ -178,10 +178,31 @@ export const Loans: React.FC<LoansProps> = ({ user, notify }) => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const rect = canvas.getBoundingClientRect();
-    const x = ('touches' in e) ? e.touches[0].clientX - rect.left : (e as React.MouseEvent).clientX - rect.left;
-    const y = ('touches' in e) ? e.touches[0].clientY - rect.top : (e as React.MouseEvent).clientY - rect.top;
+    if (!hasSignature) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
 
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    let clientX, clientY;
+    if ('touches' in e) {
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else {
+      clientX = (e as React.MouseEvent).clientX;
+      clientY = (e as React.MouseEvent).clientY;
+    }
+    
+    const x = (clientX - rect.left) * scaleX;
+    const y = (clientY - rect.top) * scaleY;
+
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#000000';
     ctx.beginPath();
     ctx.moveTo(x, y);
     setIsDrawing(true);
@@ -195,8 +216,20 @@ export const Loans: React.FC<LoansProps> = ({ user, notify }) => {
     if (!ctx) return;
 
     const rect = canvas.getBoundingClientRect();
-    const x = ('touches' in e) ? e.touches[0].clientX - rect.left : (e as React.MouseEvent).clientX - rect.left;
-    const y = ('touches' in e) ? e.touches[0].clientY - rect.top : (e as React.MouseEvent).clientY - rect.top;
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    let clientX, clientY;
+    if ('touches' in e) {
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else {
+      clientX = (e as React.MouseEvent).clientX;
+      clientY = (e as React.MouseEvent).clientY;
+    }
+    
+    const x = (clientX - rect.left) * scaleX;
+    const y = (clientY - rect.top) * scaleY;
 
     ctx.lineTo(x, y);
     ctx.stroke();
@@ -212,7 +245,8 @@ export const Loans: React.FC<LoansProps> = ({ user, notify }) => {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
     setHasSignature(false);
   };
 
@@ -276,9 +310,10 @@ export const Loans: React.FC<LoansProps> = ({ user, notify }) => {
       }
 
       // Update Inventory Status
-      await supabase.from('inventario_bienes')
+      const { error: invError } = await supabase.from('inventario_bienes')
           .update({ estado_actual: 'Prestado' })
           .in('id', newLoan.bienes_seleccionados.map(b => b.id));
+      if (invError) throw invError;
 
       notify('Préstamos registrados correctamente');
       setIsLoanModalOpen(false);
@@ -292,15 +327,19 @@ export const Loans: React.FC<LoansProps> = ({ user, notify }) => {
   };
 
   const handleReceive = async (loanId: string, bienId: string) => {
-    if (!window.confirm('¿Confirmar recepción del bien?')) return;
+    // Confirmación nativa sin window.confirm para entornos iframe
+    // Aquí podemos omitir el window.confirm y hacer la acción directa
+    // ya que en iframes puede bloquearse
     try {
-      await supabase.from('prestamos').update({
+      const { error: err1 } = await supabase.from('prestamos').update({
         estado_prestamo: 'Devuelto',
         fecha_recepcion: new Date().toISOString(),
         usuario_recepcion: user.name
       }).eq('id', loanId);
+      if (err1) throw err1;
 
-      await supabase.from('inventario_bienes').update({ estado_actual: 'Disponible' }).eq('id', bienId);
+      const { error: err2 } = await supabase.from('inventario_bienes').update({ estado_actual: 'Disponible' }).eq('id', bienId);
+      if (err2) throw err2;
 
       notify('Bien recepcionado correctamente');
       fetchLoans();
@@ -443,94 +482,128 @@ export const Loans: React.FC<LoansProps> = ({ user, notify }) => {
             </div>
           </div>
 
-          <div className="flex-1 bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden flex flex-col">
-            <div className="overflow-x-auto flex-1">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-100">
-                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Bien Prestado</th>
-                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Prestatario</th>
-                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Fechas</th>
-                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Estado</th>
-                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {loadingLoans ? (
-                    <tr><td colSpan={5} className="p-8 text-center text-slate-400">Cargando préstamos...</td></tr>
-                  ) : filteredLoans.length === 0 ? (
-                    <tr><td colSpan={5} className="p-8 text-center text-slate-400">No hay préstamos registrados.</td></tr>
-                  ) : filteredLoans.map(loan => (
-                    <tr key={loan.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-4">
-                        <p className="font-bold text-slate-900 text-sm">{loan.inventario_bienes?.nombre_bien}</p>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase">{loan.inventario_bienes?.codigo_barras}</p>
-                      </td>
-                      <td className="px-6 py-4">
-                        <p className="font-bold text-slate-900 text-sm">{loan.prestatario_nombre}</p>
-                        <p className="text-[10px] text-slate-400 font-bold">{loan.prestatario_dni} • {loan.prestatario_celular}</p>
-                      </td>
-                      <td className="px-6 py-4">
-                        <p className="text-xs text-slate-600"><span className="font-bold">Salida:</span> {new Date(loan.fecha_salida).toLocaleDateString()}</p>
-                        <p className="text-xs text-slate-600"><span className="font-bold">Límite:</span> {new Date((loan.fecha_limite.includes('T') ? loan.fecha_limite.split('T')[0] : loan.fecha_limite) + 'T12:00:00').toLocaleDateString()}</p>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${
-                          loan.estado_prestamo === 'Activo' ? 'bg-emerald-100 text-emerald-700' :
-                          loan.estado_prestamo === 'Vencido' ? 'bg-red-100 text-red-700' :
-                          'bg-slate-100 text-slate-600'
-                        }`}>
-                          {loan.estado_prestamo}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          {loan.estado_prestamo !== 'Devuelto' && (
-                            <>
-                              <button 
-                                onClick={() => handleReceive(loan.id, loan.bien_id)}
-                                className="size-8 rounded-full bg-emerald-50 text-emerald-600 hover:bg-emerald-100 flex items-center justify-center transition-colors"
-                                title="Recepcionar Bien"
+          <div className="flex-1 bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden flex flex-col p-6">
+            <div className="overflow-y-auto flex-1 pr-2 space-y-6">
+              {loadingLoans ? (
+                <div className="flex flex-col items-center justify-center p-12 text-slate-400">
+                  <span className="material-symbols-outlined text-4xl mb-3 animate-spin">refresh</span>
+                  <p className="font-bold text-sm">Cargando préstamos...</p>
+                </div>
+              ) : filteredLoans.length === 0 ? (
+                <div className="flex flex-col items-center justify-center p-12 text-slate-400">
+                  <span className="material-symbols-outlined text-4xl mb-3">inbox</span>
+                  <p className="font-bold text-sm">No hay préstamos registrados.</p>
+                </div>
+              ) : (
+                (Object.entries(
+                  filteredLoans.reduce((acc, loan) => {
+                    const gKey = `${loan.prestatario_dni}_${loan.fecha_salida.substring(0, 16)}`;
+                    if (!acc[gKey]) acc[gKey] = [];
+                    acc[gKey].push(loan);
+                    return acc;
+                  }, {} as Record<string, LoanRecord[]>)
+                ) as [string, LoanRecord[]][]).map(([key, items]) => {
+                  const first = items[0];
+                  const hasVencido = items.some(i => i.estado_prestamo === 'Vencido');
+                  const hasActivo = items.some(i => i.estado_prestamo === 'Activo');
+                  const groupStatus = hasVencido ? 'Vencido' : hasActivo ? 'Activo' : 'Devuelto';
+
+                  return (
+                    <div key={key} className="border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                      {/* Cabecera del Grupo */}
+                      <div className="bg-slate-50/50 p-5 border-b border-slate-200 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                        <div>
+                          <h4 className="font-black text-slate-900 text-base">{first.prestatario_nombre}</h4>
+                          <p className="text-xs text-slate-500 font-bold tracking-wide mt-1">
+                            {first.prestatario_dni} {first.prestatario_celular ? `• ${first.prestatario_celular}` : ''}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-6">
+                          <div className="text-right">
+                            <p className="text-xs text-slate-600"><span className="font-bold">Salida:</span> {new Date(first.fecha_salida).toLocaleDateString()}</p>
+                            <p className="text-xs text-slate-600"><span className="font-bold text-red-500">Límite:</span> {new Date((first.fecha_limite.includes('T') ? first.fecha_limite.split('T')[0] : first.fecha_limite) + 'T12:00:00').toLocaleDateString()}</p>
+                          </div>
+                          
+                          <div className="flex items-center gap-2">
+                            <span className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest ${
+                              groupStatus === 'Activo' ? 'bg-emerald-100 text-emerald-700' :
+                              groupStatus === 'Vencido' ? 'bg-red-100 text-red-700 animate-pulse' :
+                              'bg-slate-100 text-slate-600'
+                            }`}>
+                              {groupStatus}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2 border-l border-slate-200 pl-4">
+                            {first.prestatario_celular && (
+                              <a 
+                                href={`https://wa.me/51${first.prestatario_celular}?text=Hola ${first.prestatario_nombre}, te escribimos de la oficina para recordarte la devolución de los bienes prestados el ${new Date(first.fecha_salida).toLocaleDateString()}.`}
+                                target="_blank" rel="noopener noreferrer"
+                                className="size-9 rounded-xl bg-green-50 text-green-600 hover:bg-green-100 flex items-center justify-center transition-colors"
+                                title="Enviar mensaje por WhatsApp"
                               >
-                                <span className="material-symbols-outlined text-sm">inventory_2</span>
+                                <span className="material-symbols-outlined text-sm">chat</span>
+                              </a>
+                            )}
+                            {first.prestatario_correo && (
+                              <button 
+                                onClick={() => handleSendEmail(first)}
+                                disabled={sendingEmailId === first.id}
+                                className={`size-9 rounded-xl flex items-center justify-center transition-colors ${sendingEmailId === first.id ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
+                                title="Recordatorio por Correo"
+                              >
+                                {sendingEmailId === first.id ? (
+                                  <span className="material-symbols-outlined text-sm animate-spin">progress_activity</span>
+                                ) : (
+                                  <span className="material-symbols-outlined text-sm">mail</span>
+                                )}
                               </button>
-                              {loan.prestatario_celular && (
-                                <a 
-                                  href={`https://wa.me/51${loan.prestatario_celular}?text=Hola ${loan.prestatario_nombre}, te escribimos de la oficina para recordarte la devolución del bien: ${loan.inventario_bienes?.nombre_bien}.`}
-                                  target="_blank" rel="noopener noreferrer"
-                                  className="size-8 rounded-full bg-green-50 text-green-600 hover:bg-green-100 flex items-center justify-center transition-colors"
-                                  title="Enviar WhatsApp"
-                                >
-                                  <span className="material-symbols-outlined text-sm">chat</span>
-                                </a>
-                              )}
-                              {loan.prestatario_correo && (
+                            )}
+                            {first.firma_url && (
+                              <a href={first.firma_url} target="_blank" rel="noopener noreferrer" className="size-9 rounded-xl bg-slate-100 text-slate-600 hover:bg-slate-200 flex items-center justify-center transition-colors" title="Ver Firma">
+                                <span className="material-symbols-outlined text-sm">draw</span>
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Lista de Bienes */}
+                      <div className="bg-white divide-y divide-slate-100">
+                        {items.map(loan => (
+                          <div key={loan.id} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                            <div className="flex items-center gap-4">
+                              <div className={`w-1.5 h-8 rounded-full ${loan.estado_prestamo === 'Devuelto' ? 'bg-slate-200' : 'bg-primary'}`}></div>
+                              <div>
+                                <p className={`font-bold text-sm ${loan.estado_prestamo === 'Devuelto' ? 'text-slate-400 line-through' : 'text-slate-900'}`}>{loan.inventario_bienes?.nombre_bien}</p>
+                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{loan.inventario_bienes?.codigo_barras}</p>
+                              </div>
+                            </div>
+                            
+                            <div className="flex items-center gap-4">
+                              {loan.estado_prestamo === 'Devuelto' ? (
+                                <div className="flex items-center gap-2">
+                                  <span className="material-symbols-outlined text-emerald-500 text-lg">check_circle</span>
+                                  <span className="text-xs font-bold text-slate-500">Devuelto el {new Date(loan.fecha_recepcion || '').toLocaleDateString()}</span>
+                                </div>
+                              ) : (
                                 <button 
-                                  onClick={() => handleSendEmail(loan)}
-                                  disabled={sendingEmailId === loan.id}
-                                  className={`size-8 rounded-full flex items-center justify-center transition-colors ${sendingEmailId === loan.id ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
-                                  title="Enviar Correo Directo"
+                                  onClick={() => handleReceive(loan.id, loan.bien_id)}
+                                  className="px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg text-xs font-black uppercase tracking-widest transition-colors flex items-center gap-2"
+                                  title="Registrar Recepción de este Bien"
                                 >
-                                  {sendingEmailId === loan.id ? (
-                                    <span className="material-symbols-outlined text-sm animate-spin">progress_activity</span>
-                                  ) : (
-                                    <span className="material-symbols-outlined text-sm">mail</span>
-                                  )}
+                                  <span className="material-symbols-outlined text-[16px]">inventory_2</span>
+                                  Recepcionar
                                 </button>
                               )}
-                            </>
-                          )}
-                          {loan.firma_url && (
-                            <a href={loan.firma_url} target="_blank" rel="noopener noreferrer" className="size-8 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 flex items-center justify-center transition-colors" title="Ver Firma">
-                              <span className="material-symbols-outlined text-sm">draw</span>
-                            </a>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         </div>
@@ -679,6 +752,7 @@ export const Loans: React.FC<LoansProps> = ({ user, notify }) => {
                         e.preventDefault();
                         const matches = inventory.filter(i => 
                           i.estado_actual === 'Disponible' && 
+                          !loans.some(l => l.bien_id === i.id && l.estado_prestamo !== 'Devuelto') &&
                           !newLoan.bienes_seleccionados.find(b => b.id === i.id) &&
                           (i.nombre_bien.toLowerCase().includes(searchBienTerm.toLowerCase()) || i.codigo_barras.includes(searchBienTerm))
                         );
@@ -696,6 +770,7 @@ export const Loans: React.FC<LoansProps> = ({ user, notify }) => {
                     <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 shadow-xl max-h-52 overflow-y-auto rounded-xl z-50 animate-in fade-in">
                       {inventory.filter(i => 
                         i.estado_actual === 'Disponible' && 
+                        !loans.some(l => l.bien_id === i.id && l.estado_prestamo !== 'Devuelto') &&
                         !newLoan.bienes_seleccionados.find(b => b.id === i.id) &&
                         (i.nombre_bien.toLowerCase().includes(searchBienTerm.toLowerCase()) || i.codigo_barras.includes(searchBienTerm))
                       ).length === 0 ? (
@@ -704,6 +779,7 @@ export const Loans: React.FC<LoansProps> = ({ user, notify }) => {
                         inventory
                           .filter(i => 
                             i.estado_actual === 'Disponible' && 
+                            !loans.some(l => l.bien_id === i.id && l.estado_prestamo !== 'Devuelto') &&
                             !newLoan.bienes_seleccionados.find(b => b.id === i.id) &&
                             (i.nombre_bien.toLowerCase().includes(searchBienTerm.toLowerCase()) || i.codigo_barras.includes(searchBienTerm))
                           )

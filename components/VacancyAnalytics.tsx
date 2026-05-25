@@ -149,7 +149,7 @@ export const VacancyAnalytics: React.FC<VacancyAnalyticsProps> = ({ onBack, noti
 
   // Data that powers the specific Table View (Groups by Area, then by Escuela)
   const tableDataGrouped = useMemo(() => {
-    const grouped: Record<string, Record<string, any>> = {};
+    const grouped: Record<string, Record<string, { area: string; escuela: string; [anio: string]: any }>> = {};
     const relevantData = data.filter(d => selectedYears.includes(d.anio) && (filterArea === 'Todas' || d.area === filterArea));
     
     relevantData.forEach(d => {
@@ -208,7 +208,7 @@ export const VacancyAnalytics: React.FC<VacancyAnalyticsProps> = ({ onBack, noti
             { content: `ÁREA ${area}`, colSpan: selectedYears.length + 2, styles: { halign: 'center', fontStyle: 'bold', fillColor: [254, 242, 242], textColor: [123, 21, 35] } }
           ]);
           
-          const escuelas = Object.values(tableDataGrouped[area]).sort((a,b) => a.escuela.localeCompare(b.escuela));
+          const escuelas = Object.values(tableDataGrouped[area] as Record<string, any>).sort((a,b) => a.escuela.localeCompare(b.escuela)) as any[];
           
           const areaTotals: Record<string, number> = {};
           selectedYears.forEach(y => areaTotals[y] = 0);
@@ -491,7 +491,7 @@ export const VacancyAnalytics: React.FC<VacancyAnalyticsProps> = ({ onBack, noti
                 </thead>
                 <tbody>
                   {Object.keys(tableDataGrouped).sort().map(area => {
-                    const escuelas = Object.values(tableDataGrouped[area]).sort((a,b) => a.escuela.localeCompare(b.escuela));
+                    const escuelas = Object.values(tableDataGrouped[area] as Record<string, any>).sort((a, b) => a.escuela.localeCompare(b.escuela)) as any[];
                     const areaTotals: Record<string, number> = {};
                     selectedYears.forEach(y => areaTotals[y] = 0);
                     escuelas.forEach(esc => {

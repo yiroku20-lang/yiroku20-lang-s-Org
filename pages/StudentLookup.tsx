@@ -43,6 +43,23 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
   const [editForm, setEditForm] = useState<Partial<Participant>>({});
   const [showSyncNameOption, setShowSyncNameOption] = useState(false);
 
+  const [renuncias, setRenuncias] = useState<any[]>([]);
+  const [reservas, setReservas] = useState<any[]>([]);
+
+  const fetchExtraInfo = async (studentCode: string) => {
+      try {
+          const [renReq, resReq] = await Promise.all([
+              supabase.from('renuncias').select('*').eq('student_code', studentCode).eq('status', 'Finalizado'),
+              supabase.from('reserva_vacantes_detalles').select('*, batch:reserva_vacantes_bloques(*)').eq('student_code', studentCode)
+          ]);
+          setRenuncias(renReq.data || []);
+          setReservas(resReq.data || []);
+      } catch (err) {
+          console.error("Error fetching extra info:", err);
+      }
+  };
+
+
   const fixEncoding = (text: string | undefined | null) => {
       if (!text) return '';
       let fixed = text;
@@ -67,6 +84,7 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
     setLoading(true); setError(null); setStudentHistory([]); setCandidates([]); setHasSearched(true);
+    setRenuncias([]); setReservas([]);
     try {
       const term = searchQuery.trim();
       const isNumeric = /^\d+$/.test(term);
@@ -83,6 +101,7 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
           const uniqueNames = Array.from(new Set(data.map(d => d.NOMBRE)));
           if (isNumeric || uniqueNames.length === 1) {
               setStudentHistory(data);
+              fetchExtraInfo(data[0].CODPOSTULANTE);
           } else {
               const seen = new Set();
               const uniqueCandidates = data.filter(item => {
@@ -99,6 +118,7 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
 
   const selectCandidate = async (candidate: Participant) => {
       setLoading(true);
+      setRenuncias([]); setReservas([]);
       try {
           const { data } = await supabase
             .from('participantes')
@@ -106,7 +126,10 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
             .eq('CODPOSTULANTE', candidate.CODPOSTULANTE)
             .order('ANIO', { ascending: false })
             .order('SEMESTRE', { ascending: false });
-          if (data) setStudentHistory(data);
+          if (data) {
+              setStudentHistory(data);
+              fetchExtraInfo(candidate.CODPOSTULANTE);
+          }
       } catch (err) {
           console.error(err);
       } finally {
@@ -283,6 +306,52 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
   };
 
   const mainStudent = studentHistory.length > 0 ? studentHistory[0] : null;
+
+  const getTimelineEvents = () => {
+      const events: any[] = [];
+      studentHistory.forEach(s => {
+          events.push({
+              id: `ingreso-${s.id}`,
+              type: 'ingreso',
+              sortKey: `${s.ANIO}-${s.SEMESTRE === 'I' ? '1' : s.SEMESTRE === 'II' ? '2' : '3'}-ingreso`,
+              data: s
+          });
+      });
+      renuncias.forEach(r => {
+          const [anio, sem] = (r.semester || '0000-0').split('-');
+          events.push({
+              id: `renuncia-${r.id}`,
+              type: 'renuncia',
+              sortKey: `${anio}-${sem === 'I' ? '1' : sem === 'II' ? '2' : '3'}-renuncia`,
+              data: r
+          });
+      });
+      reservas.forEach(r => {
+          const [anio, sem] = (r.starting_semester || '0000-0').split('-');
+          events.push({
+              id: `reserva-${r.id}`,
+              type: 'reserva',
+              sortKey: `${anio}-${sem === 'I' ? '1' : sem === 'II' ? '2' : '3'}-reserva`,
+              data: r
+          });
+          if (r.is_withdrawn) {
+              events.push({
+                  id: `reserva-ret-${r.id}`,
+                  type: 'retiro_reserva',
+                  sortKey: `${anio}-${sem === 'I' ? '1' : sem === 'II' ? '2' : '3'}-retiro`,
+                  data: r
+              });
+          }
+      });
+  
+      return events.sort((a, b) => {
+          if (a.sortKey > b.sortKey) return -1;
+          if (a.sortKey < b.sortKey) return 1;
+          return 0;
+      });
+  };
+
+  const timelineEvents = getTimelineEvents();
 
   return (
     <div className="flex-1 w-full max-w-[1600px] mx-auto p-4 md:p-6 lg:p-8 flex flex-col gap-6 h-full overflow-hidden">
@@ -577,33 +646,108 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
                                  <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-6 border-b pb-2 shrink-0">Trayectoria de Ingresos UNSAAC</h4>
                                  <div className="flex-1 overflow-y-auto pr-4 space-y-8 relative">
                                      <div className="absolute left-5 top-0 bottom-0 w-0.5 bg-slate-100"></div>
-                                     {studentHistory.map((item, idx) => (
-                                         <div key={item.id || idx} className="flex gap-6 relative group">
-                                             <div className={`size-10 rounded-full flex items-center justify-center shrink-0 z-10 transition-all ${idx === 0 ? 'bg-green-600 text-white shadow-lg shadow-green-200 scale-110' : 'bg-slate-100 text-slate-400 group-hover:bg-primary/10 group-hover:text-primary'}`}>
-                                                 <span className="material-symbols-outlined text-xl">{idx === 0 ? 'verified' : 'history'}</span>
-                                             </div>
-                                             <div className="flex-1 pb-2">
-                                                 <div className="flex justify-between items-start">
-                                                     <div>
-                                                        <p className={`font-black text-sm uppercase ${idx === 0 ? 'text-slate-900' : 'text-slate-500'}`}>{fixEncoding(item.CARRERA)}</p>
-                                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Admisión: {item.SEMESTRE}-{item.ANIO}</p>
+                                     {timelineEvents.map((evt, idx) => {
+                                         if (evt.type === 'ingreso') {
+                                             const item = evt.data;
+                                             return (
+                                                 <div key={evt.id} className="flex gap-6 relative group">
+                                                     <div className={`size-10 rounded-full flex items-center justify-center shrink-0 z-10 transition-all ${idx === 0 ? 'bg-green-600 text-white shadow-lg shadow-green-200 scale-110' : 'bg-slate-100 text-slate-400 group-hover:bg-primary/10 group-hover:text-primary'}`}>
+                                                         <span className="material-symbols-outlined text-xl">{idx === 0 ? 'verified' : 'history'}</span>
                                                      </div>
-                                                     <button 
-                                                        onClick={() => { setEditingRecord(item); setEditForm(item); setIsEditing(true); }}
-                                                        className="p-2 text-slate-400 hover:text-primary transition-colors"
-                                                     >
-                                                        <span className="material-symbols-outlined text-[20px]">edit</span>
-                                                     </button>
+                                                     <div className="flex-1 pb-2">
+                                                         <div className="flex justify-between items-start">
+                                                             <div>
+                                                                <p className={`font-black text-sm uppercase ${idx === 0 ? 'text-slate-900' : 'text-slate-500'}`}>{fixEncoding(item.CARRERA)}</p>
+                                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Admisión: {item.SEMESTRE}-{item.ANIO}</p>
+                                                             </div>
+                                                             <button 
+                                                                onClick={() => { setEditingRecord(item); setEditForm(item); setIsEditing(true); }}
+                                                                className="p-2 text-slate-400 hover:text-primary transition-colors"
+                                                             >
+                                                                <span className="material-symbols-outlined text-[20px]">edit</span>
+                                                             </button>
+                                                         </div>
+                                                         <div className="mt-3 flex gap-2">
+                                                             <span className="bg-slate-50 text-slate-600 border border-slate-200 px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest">{item.MODALIDAD}</span>
+                                                             <span className="bg-slate-50 text-slate-600 border border-slate-200 px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest">{item.FILIAL || 'CUSCO'}</span>
+                                                             {item.OMERITO && <span className="bg-emerald-50 text-emerald-700 border border-emerald-100 px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest">Puesto: {item.OMERITO}</span>}
+                                                             {item.FECHAINGRESO && <span className="bg-blue-50 text-blue-700 border border-blue-100 px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest">{item.FECHAINGRESO}</span>}
+                                                         </div>
+                                                     </div>
                                                  </div>
-                                                 <div className="mt-3 flex gap-2">
-                                                     <span className="bg-slate-50 text-slate-600 border border-slate-200 px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest">{item.MODALIDAD}</span>
-                                                     <span className="bg-slate-50 text-slate-600 border border-slate-200 px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest">{item.FILIAL || 'CUSCO'}</span>
-                                                     {item.OMERITO && <span className="bg-emerald-50 text-emerald-700 border border-emerald-100 px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest">Puesto: {item.OMERITO}</span>}
-                                                     {item.FECHAINGRESO && <span className="bg-blue-50 text-blue-700 border border-blue-100 px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest">{item.FECHAINGRESO}</span>}
+                                             );
+                                         }
+                                         
+                                         if (evt.type === 'renuncia') {
+                                             const item = evt.data;
+                                             return (
+                                                 <div key={evt.id} className="flex gap-6 relative group">
+                                                     <div className={`size-10 rounded-full flex items-center justify-center shrink-0 z-10 transition-all bg-red-100 text-red-500`}>
+                                                         <span className="material-symbols-outlined text-xl">cancel</span>
+                                                     </div>
+                                                     <div className="flex-1 pb-2">
+                                                         <div className="flex justify-between items-start">
+                                                             <div>
+                                                                <p className={`font-black text-sm uppercase text-slate-700`}>Renuncia de Vacante: {item.school}</p>
+                                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">PROCESO: {item.semester}</p>
+                                                             </div>
+                                                         </div>
+                                                         <div className="mt-3 flex gap-2">
+                                                             <span className="bg-red-50 text-red-700 border border-red-200 px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest">Res: {item.resolution_number}</span>
+                                                             {item.resolution_date && <span className="bg-slate-50 text-slate-600 border border-slate-200 px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest">{item.resolution_date}</span>}
+                                                         </div>
+                                                     </div>
                                                  </div>
-                                             </div>
-                                         </div>
-                                     ))}
+                                             );
+                                         }
+
+                                         if (evt.type === 'reserva') {
+                                             const item = evt.data;
+                                             return (
+                                                 <div key={evt.id} className="flex gap-6 relative group">
+                                                     <div className={`size-10 rounded-full flex items-center justify-center shrink-0 z-10 transition-all bg-amber-100 text-amber-600`}>
+                                                         <span className="material-symbols-outlined text-xl">bookmark</span>
+                                                     </div>
+                                                     <div className="flex-1 pb-2">
+                                                         <div className="flex justify-between items-start">
+                                                             <div>
+                                                                <p className={`font-black text-sm uppercase text-slate-700`}>Reserva de Vacante</p>
+                                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Retorno: {item.starting_semester}</p>
+                                                             </div>
+                                                         </div>
+                                                         <div className="mt-3 flex gap-2">
+                                                             {item.batch?.resolution_number && <span className="bg-amber-50 text-amber-700 border border-amber-200 px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest">Res: {item.batch.resolution_number}</span>}
+                                                             <span className="bg-slate-50 text-slate-600 border border-slate-200 px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest">Iniciará: {item.starting_semester}</span>
+                                                         </div>
+                                                     </div>
+                                                 </div>
+                                             );
+                                         }
+                                         
+                                         if (evt.type === 'retiro_reserva') {
+                                             const item = evt.data;
+                                             return (
+                                                 <div key={evt.id} className="flex gap-6 relative group">
+                                                     <div className={`size-10 rounded-full flex items-center justify-center shrink-0 z-10 transition-all bg-slate-200 text-slate-500`}>
+                                                         <span className="material-symbols-outlined text-xl">block</span>
+                                                     </div>
+                                                     <div className="flex-1 pb-2">
+                                                         <div className="flex justify-between items-start">
+                                                             <div>
+                                                                <p className={`font-black text-sm uppercase text-slate-700`}>Retiro Definitivo (Tras Reserva)</p>
+                                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">PROCESO: {item.starting_semester}</p>
+                                                             </div>
+                                                         </div>
+                                                         <div className="mt-3 flex gap-2">
+                                                             {item.withdrawal_resolution_number && <span className="bg-slate-100 text-slate-600 border border-slate-200 px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest">Res Retiro: {item.withdrawal_resolution_number}</span>}
+                                                         </div>
+                                                     </div>
+                                                 </div>
+                                             );
+                                         }
+
+                                         return null;
+                                     })}
                                  </div>
                              </div>
                          )}

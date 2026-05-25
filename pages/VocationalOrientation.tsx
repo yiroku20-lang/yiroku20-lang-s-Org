@@ -452,7 +452,7 @@ Dirección de Admisión`);
       phoneNum = '51' + phoneNum;
     }
 
-    const hasTakenTest = p.resultado_test && p.resultado_test !== '';
+    const hasTakenTest = Array.isArray(p.resultados_test) && p.resultados_test.length > 0;
     const testLink = hasTakenTest 
       ? '' 
       : `\n\n¿Aún no sabes qué estudiar?\nRealiza nuestro Test Vocacional gratis aquí:\n👉 https://test-prueba-admision.netlify.app/`;
