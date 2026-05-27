@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { Link } from 'react-router-dom';
 import { CalendarEvent, LoanRecord, Resignation, PaymentRegistry, User } from '../types';
-import { format, isAfter, isBefore, addDays, parseISO, startOfDay } from 'date-fns';
+import { format, isAfter, isBefore, addDays, parseISO, startOfDay, isSameDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 const getProcesoColor = (proceso: string | undefined, defaultColor: string | undefined) => {
@@ -267,23 +267,31 @@ export const Dashboard: React.FC<{ user: User | null }> = ({ user }) => {
                       <div className="relative border-l border-slate-200 ml-4 space-y-8">
                           {upcomingEvents.map((ev, i) => {
                               const eventColor = getProcesoColor(ev.proceso, ev.color);
+                              const isToday = isSameDay(parseISO(ev.start_date), new Date());
                               return (
                               <div key={ev.id} className="relative pl-6">
-                                  <div className="absolute -left-1.5 top-1.5 w-3 h-3 rounded-full border-2 border-white" style={{ backgroundColor: eventColor }}></div>
-                                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 hover:border-slate-300 transition-colors flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                  <div className={`absolute -left-1.5 top-1.5 w-3 h-3 rounded-full border-2 border-white ${isToday ? 'animate-pulse' : ''}`} style={{ backgroundColor: eventColor }}></div>
+                                  <div 
+                                    className={`p-4 rounded-2xl border transition-colors flex flex-col md:flex-row md:items-center justify-between gap-4 ${isToday ? 'border-transparent text-white shadow-md' : 'bg-slate-50 border-slate-100 hover:border-slate-300'}`}
+                                    style={isToday ? { backgroundColor: eventColor } : {}}
+                                  >
                                       <div className="flex-1">
                                           <div className="flex flex-wrap gap-2 mb-2 items-center">
-                                              <span className="text-[10px] font-black uppercase tracking-widest text-white px-2 py-0.5 rounded-full" style={{ backgroundColor: eventColor }}>{ev.type}</span>
-                                              {ev.proceso && <span className="text-[10px] font-bold text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded-full">{ev.proceso}</span>}
+                                              {isToday ? (
+                                                  <span className="text-[10px] font-black uppercase tracking-widest bg-white px-2 py-0.5 rounded-full" style={{ color: eventColor }}>¡HOY! {ev.type}</span>
+                                              ) : (
+                                                  <span className="text-[10px] font-black uppercase tracking-widest text-white px-2 py-0.5 rounded-full" style={{ backgroundColor: eventColor }}>{ev.type}</span>
+                                              )}
+                                              {ev.proceso && <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isToday ? 'bg-white/20 text-white' : 'text-slate-500 bg-white border border-slate-200'}`}>{ev.proceso}</span>}
                                           </div>
-                                          <h4 className="font-bold text-slate-900 text-sm leading-snug">{ev.title}</h4>
-                                          {ev.description && <p className="text-xs text-slate-500 italic mt-1">"{ev.description}"</p>}
+                                          <h4 className={`font-bold text-sm leading-snug ${isToday ? 'text-white' : 'text-slate-900'}`}>{ev.title}</h4>
+                                          {ev.description && <p className={`text-xs italic mt-1 ${isToday ? 'text-white/80' : 'text-slate-500'}`}>"{ev.description}"</p>}
                                       </div>
                                       <div className="shrink-0 md:text-right">
-                                          <p className="text-sm font-black whitespace-nowrap" style={{ color: eventColor }}>
+                                          <p className={`text-sm font-black whitespace-nowrap`} style={isToday ? { color: '#ffffff' } : { color: eventColor }}>
                                               {format(parseISO(ev.start_date), "dd 'de' MMMM, yyyy", { locale: es })}
                                           </p>
-                                          <p className="text-[11px] font-bold" style={{ color: eventColor, opacity: 0.8 }}>
+                                          <p className={`text-[11px] font-bold`} style={isToday ? { color: '#ffffff', opacity: 0.9 } : { color: eventColor, opacity: 0.8 }}>
                                               {format(parseISO(ev.start_date), "HH:mm")}
                                               {ev.end_date && ev.end_date !== ev.start_date && ' - ' + format(parseISO(ev.end_date), "HH:mm")}
                                           </p>
@@ -331,7 +339,7 @@ export const Dashboard: React.FC<{ user: User | null }> = ({ user }) => {
                               {overdueLoans.slice(0, 5).map(loan => (
                                   <div key={loan.id} className="p-4 hover:bg-slate-50 transition-colors flex items-center justify-between gap-4">
                                       <div className="min-w-0">
-                                          <p className="text-sm font-bold text-slate-900 truncate">{loan.inventario_bienes?.nombre || 'Bien Desconocido'}</p>
+                                          <p className="text-sm font-bold text-slate-900 truncate">{loan.inventario_bienes?.nombre_bien || 'Bien Desconocido'}</p>
                                           <p className="text-xs text-slate-500 truncate">Prestado a: <span className="font-medium text-slate-700">{loan.prestatario_nombre}</span></p>
                                       </div>
                                       <div className="shrink-0 text-right">

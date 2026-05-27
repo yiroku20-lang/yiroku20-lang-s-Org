@@ -36,6 +36,7 @@ export const Settings: React.FC<{ user: User, notify?: (msg: string, type?: 'suc
     { id: 'view_prestamos', label: 'Préstamo de Bienes' },
     { id: 'view_agenda', label: 'Agenda de Eventos' },
     { id: 'view_auditoria', label: 'Auditoría y Logs' },
+    { id: 'view_adjudicaciones', label: 'Adjudicaciones' },
     { id: 'upload_csv', label: 'Cargar Archivos CSV / Padrones' }
   ];
 

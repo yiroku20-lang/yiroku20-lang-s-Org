@@ -155,7 +155,9 @@ function App() {
                 <Route path="/actas" element={<MeetingMinutes user={user} notify={addToast} />} />
               )}
               {/* Adjudicación */}
-              <Route path="/adjudication" element={<Adjudication />} />
+              {(user.role === 'Administrador' || user.role === 'Director' || (user.role === 'Operador' && user.permissions?.includes('view_adjudicaciones'))) && (
+                <Route path="/adjudication" element={<Adjudication />} />
+              )}
               
               {/* Agenda / Calendario */}
               {(user.role === 'Administrador' || (user.role === 'Operador' && user.permissions?.includes('view_agenda'))) && (

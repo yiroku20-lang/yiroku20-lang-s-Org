@@ -46,11 +46,17 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
   const [renuncias, setRenuncias] = useState<any[]>([]);
   const [reservas, setReservas] = useState<any[]>([]);
 
-  const fetchExtraInfo = async (studentCode: string) => {
+  const fetchExtraInfo = async (history: Participant[]) => {
+      const studentCodes = Array.from(new Set(history.map(s => s.CODPOSTULANTE).filter(Boolean)));
+      if (studentCodes.length === 0) {
+          setRenuncias([]);
+          setReservas([]);
+          return;
+      }
       try {
           const [renReq, resReq] = await Promise.all([
-              supabase.from('renuncias').select('*').eq('student_code', studentCode).eq('status', 'Finalizado'),
-              supabase.from('reserva_vacantes_detalles').select('*, batch:reserva_vacantes_bloques(*)').eq('student_code', studentCode)
+              supabase.from('renuncias').select('*').in('student_code', studentCodes).eq('status', 'Finalizado'),
+              supabase.from('reserva_vacantes_detalles').select('*, batch:reserva_vacantes_bloques(*)').in('student_code', studentCodes)
           ]);
           setRenuncias(renReq.data || []);
           setReservas(resReq.data || []);
@@ -90,8 +96,17 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
       const isNumeric = /^\d+$/.test(term);
       
       let query = supabase.from('participantes').select('*');
-      if (isNumeric) query = query.eq('CODPOSTULANTE', term);
-      else query = query.ilike('NOMBRE', `%${term}%`);
+      if (isNumeric) {
+          query = query.eq('CODPOSTULANTE', term);
+      } else {
+          // Split by spaces, commas, hyphens and slashes to support any order/separators (like hyphenated names in the DB)
+          const words = term.split(/[\s,\-/]+/).filter(Boolean);
+          words.forEach(word => {
+            // Replace vowels with '_' to be completely accent-insensitive and spelling-forgiving
+            const agnostic = word.replace(/[aeiouáéíóúüAEIOUÁÉÍÓÚÜ]/g, '_');
+            query = query.ilike('NOMBRE', `%${agnostic}%`);
+          });
+      }
       
       const { data, error: err } = await query.order('ANIO', { ascending: false }).order('SEMESTRE', { ascending: false });
       
@@ -99,13 +114,13 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
       
       if (data && data.length > 0) {
           const uniqueNames = Array.from(new Set(data.map(d => d.NOMBRE)));
-          if (isNumeric || uniqueNames.length === 1) {
+          if (uniqueNames.length === 1) {
               setStudentHistory(data);
-              fetchExtraInfo(data[0].CODPOSTULANTE);
+              fetchExtraInfo(data);
           } else {
               const seen = new Set();
               const uniqueCandidates = data.filter(item => {
-                  const key = item.CODPOSTULANTE;
+                  const key = item.NOMBRE;
                   return seen.has(key) ? false : seen.add(key);
               });
               setCandidates(uniqueCandidates);
@@ -123,12 +138,12 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
           const { data } = await supabase
             .from('participantes')
             .select('*')
-            .eq('CODPOSTULANTE', candidate.CODPOSTULANTE)
+            .eq('NOMBRE', candidate.NOMBRE)
             .order('ANIO', { ascending: false })
             .order('SEMESTRE', { ascending: false });
           if (data) {
               setStudentHistory(data);
-              fetchExtraInfo(candidate.CODPOSTULANTE);
+              fetchExtraInfo(data);
           }
       } catch (err) {
           console.error(err);

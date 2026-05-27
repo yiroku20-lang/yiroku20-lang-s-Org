@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabaseClient';
 import { OutgoingFile, User, TrackingEvent } from '../types';
 import Papa from 'papaparse';
 import { UnifiedTimelineModal } from '../components/UnifiedTimelineModal';
+import { PendingFollowupModal } from '../components/PendingFollowupModal';
 
 interface GroupedOutgoingFile extends OutgoingFile {
   count: number;
@@ -41,6 +42,7 @@ export const OutgoingFiles: React.FC<{ user: User }> = ({ user }) => {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [currentFilter, setCurrentFilter] = useState('Todos');
+  const [isPendingReportOpen, setIsPendingReportOpen] = useState(false);
 
   useEffect(() => {
     fetchFiles();
@@ -531,6 +533,10 @@ export const OutgoingFiles: React.FC<{ user: User }> = ({ user }) => {
             <p className="text-slate-500 text-sm font-medium">Control institucional de documentos emitidos por la oficina.</p>
         </div>
         <div className="flex items-center gap-3">
+            <button onClick={() => setIsPendingReportOpen(true)} className="flex items-center gap-2 bg-indigo-50 border-2 border-indigo-100 text-indigo-700 hover:border-indigo-200 hover:bg-indigo-100 h-12 px-6 rounded-xl font-black text-xs uppercase transition-all active:scale-95">
+                <span className="material-symbols-outlined">analytics</span>
+                Reportes
+            </button>
             {(user.role === 'Administrador' || (user.role === 'Operador' && user.permissions?.includes('upload_csv'))) && (
               <button onClick={() => setIsImportModalOpen(true)} className="flex items-center gap-2 bg-white border-2 border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50 h-12 px-6 rounded-xl font-black text-xs uppercase transition-all active:scale-95">
                   <span className="material-symbols-outlined">upload_file</span>
@@ -732,6 +738,11 @@ export const OutgoingFiles: React.FC<{ user: User }> = ({ user }) => {
             </div>
         )}
       </div>
+
+      {/* PENDING FOLLOWUP REPORT MODAL */}
+      {isPendingReportOpen && (
+        <PendingFollowupModal onClose={() => setIsPendingReportOpen(false)} />
+      )}
     </div>
   );
 };

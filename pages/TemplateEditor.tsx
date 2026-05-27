@@ -135,6 +135,12 @@ export const TemplateEditor: React.FC<Props> = ({ user }) => {
   const [isUploading, setIsUploading] = useState(false);
   const [resources, setResources] = useState<{name: string, url: string}[]>([]);
   
+  // Signature Drawing State
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [hasSignature, setHasSignature] = useState(false);
+  const [showSignaturePad, setShowSignaturePad] = useState(false);
+  
   // ESTADO PARA CONTENIDO OBTENIDO (Evita condiciones de carrera con el ref)
   const [fetchedContent, setFetchedContent] = useState<string | null>(null);
 
@@ -440,6 +446,109 @@ export const TemplateEditor: React.FC<Props> = ({ user }) => {
               setSelectedImage(null);
           }
       }
+  };
+
+  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    if (!hasSignature) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    let clientX, clientY;
+    if ('touches' in e) {
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else {
+      clientX = (e as React.MouseEvent).clientX;
+      clientY = (e as React.MouseEvent).clientY;
+    }
+    
+    const x = (clientX - rect.left) * scaleX;
+    const y = (clientY - rect.top) * scaleY;
+
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#000000';
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    setIsDrawing(true);
+  };
+
+  const drawSignature = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    if (!isDrawing) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    let clientX, clientY;
+    if ('touches' in e) {
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else {
+      clientX = (e as React.MouseEvent).clientX;
+      clientY = (e as React.MouseEvent).clientY;
+    }
+    
+    const x = (clientX - rect.left) * scaleX;
+    const y = (clientY - rect.top) * scaleY;
+
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    setHasSignature(true);
+  };
+
+  const stopDrawing = () => {
+    setIsDrawing(false);
+  };
+
+  const clearSignature = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    setHasSignature(false);
+  };
+
+  const saveSignature = async () => {
+    if (!hasSignature || !canvasRef.current) return;
+    setIsUploading(true);
+    try {
+      const blob = await new Promise<Blob | null>(resolve => canvasRef.current?.toBlob(resolve, 'image/png'));
+      if (blob) {
+        const fileName = `firma_${Date.now()}.png`;
+        const { error: uploadError } = await supabase.storage
+          .from('plantillas_recursos')
+          .upload(fileName, blob);
+          
+        if (uploadError) throw uploadError;
+        showToast('Firma guardada en recursos');
+        setShowSignaturePad(false);
+        clearSignature();
+        fetchResources();
+      }
+    } catch (error: any) {
+      console.error(error);
+      showToast('Error al guardar firma', 'error');
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const handleContainerDoubleClick = (e: React.MouseEvent) => {
@@ -854,18 +963,58 @@ export const TemplateEditor: React.FC<Props> = ({ user }) => {
                             className="hidden" 
                             onChange={handleImageUpload}
                         />
-                        <div 
-                            className={`border-2 border-dashed border-slate-300 rounded-lg p-6 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-slate-50 hover:border-primary transition-colors active:scale-95 ${isUploading ? 'opacity-50 pointer-events-none' : ''}`}
-                            onClick={() => imageInputRef.current?.click()}
-                        >
-                            {isUploading ? (
-                                <span className="material-symbols-outlined text-primary text-3xl mb-2 animate-spin">progress_activity</span>
-                            ) : (
-                                <span className="material-symbols-outlined text-slate-400 text-3xl mb-2">cloud_upload</span>
-                            )}
-                            <p className="text-sm font-medium text-slate-700">{isUploading ? 'Subiendo...' : 'Subir Imagen'}</p>
-                            <p className="text-xs text-slate-400 mt-1">PNG, JPG (Max 2MB)</p>
-                        </div>
+                        
+                        {!showSignaturePad ? (
+                          <div className="flex gap-2">
+                              <button 
+                                  className={`flex-1 border-2 border-dashed border-slate-300 rounded-lg p-4 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-slate-50 hover:border-primary transition-colors active:scale-95 ${isUploading ? 'opacity-50 pointer-events-none' : ''}`}
+                                  onClick={() => imageInputRef.current?.click()}
+                              >
+                                  {isUploading ? (
+                                      <span className="material-symbols-outlined text-primary text-2xl mb-1 animate-spin">progress_activity</span>
+                                  ) : (
+                                      <span className="material-symbols-outlined text-slate-400 text-2xl mb-1">cloud_upload</span>
+                                  )}
+                                  <p className="text-[10px] font-bold text-slate-700 uppercase">Subir Archivo</p>
+                              </button>
+
+                              <button 
+                                  className="flex-1 border-2 border-dashed border-slate-300 rounded-lg p-4 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-slate-50 hover:border-primary transition-colors active:scale-95"
+                                  onClick={() => setShowSignaturePad(true)}
+                              >
+                                  <span className="material-symbols-outlined text-slate-400 text-2xl mb-1">draw</span>
+                                  <p className="text-[10px] font-bold text-slate-700 uppercase">Dibujar Firma</p>
+                              </button>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-2">
+                             <div className="flex justify-between items-center">
+                                <span className="text-[10px] font-bold text-slate-500 uppercase">Firma Digital</span>
+                                <button className="text-[10px] text-red-500 font-bold hover:underline" onClick={() => setShowSignaturePad(false)}>Cancelar</button>
+                             </div>
+                             <div className="border-2 border-dashed border-slate-300 rounded-lg bg-white overflow-hidden relative h-32">
+                                <canvas 
+                                  ref={canvasRef}
+                                  width={280}
+                                  height={128}
+                                  onMouseDown={startDrawing}
+                                  onMouseMove={drawSignature}
+                                  onMouseUp={stopDrawing}
+                                  onMouseLeave={stopDrawing}
+                                  onTouchStart={startDrawing}
+                                  onTouchMove={drawSignature}
+                                  onTouchEnd={stopDrawing}
+                                  className="w-full h-full cursor-crosshair touch-none"
+                                />
+                             </div>
+                             <div className="flex gap-2">
+                                <button onClick={clearSignature} className="flex-1 py-1.5 bg-slate-100 text-slate-600 rounded text-[10px] font-bold hover:bg-slate-200">Limpiar</button>
+                                <button onClick={saveSignature} disabled={!hasSignature || isUploading} className="flex-[2] py-1.5 bg-primary text-white rounded text-[10px] font-bold hover:bg-blue-700 disabled:opacity-50">
+                                   {isUploading ? 'Guardando...' : 'Guardar Firma'}
+                                </button>
+                             </div>
+                          </div>
+                        )}
                         
                         <div>
                             <div className="flex justify-between items-center mb-3">
