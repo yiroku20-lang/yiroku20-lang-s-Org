@@ -348,18 +348,22 @@ export const Loans: React.FC<LoansProps> = ({ user, notify }) => {
     }
   };
 
-  const handleSendEmail = async (loan: LoanRecord) => {
-    if (!loan.prestatario_correo) {
+  const handleSendEmail = async (items: LoanRecord[]) => {
+    const first = items[0];
+    if (!first.prestatario_correo) {
       notify('El prestatario no tiene un correo registrado', 'warning');
       return;
     }
     
-    setSendingEmailId(loan.id);
+    setSendingEmailId(first.id);
     try {
+      const bienesList = items.map(i => `- ${i.inventario_bienes?.nombre_bien || 'Bien sin nombre'} (Cod: ${i.inventario_bienes?.codigo_barras || i.bien_id})`).join('\n');
+      const safeFechaLimite = (first.fecha_limite.includes('T') ? first.fecha_limite.split('T')[0] : first.fecha_limite) + 'T12:00:00';
+
       const payload = {
-        to: loan.prestatario_correo,
-        subject: 'Recordatorio de Devolución de Bien - UNSAAC',
-        text: `Hola ${loan.prestatario_nombre},\n\nTe escribimos de la Oficina de Admisión UNSAAC para recordarte la devolución del bien prestado:\n\nBien: ${loan.inventario_bienes?.nombre_bien}\nFecha Límite: ${new Date(loan.fecha_limite + 'T12:00:00').toLocaleDateString()}\n\nPor favor, acércate a la oficina a la brevedad posible para regularizar el estado de tu préstamo y devolver el bien.\n\nSaludos cordiales,\nSistema de Admisión UNSAAC`
+        to: first.prestatario_correo,
+        subject: 'Recordatorio de Devolución de Bienes - UNSAAC',
+        text: `Hola ${first.prestatario_nombre},\n\nTe escribimos de la Oficina de Admisión UNSAAC para recordarte la devolución de los bienes prestados:\n\n${bienesList}\n\nFecha Límite: ${new Date(safeFechaLimite).toLocaleDateString()}\n\nPor favor, acércate a la oficina a la brevedad posible para regularizar el estado de tu préstamo y devolver los bienes.\n\nSaludos cordiales,\nSistema de Admisión UNSAAC`
       };
 
       const response = await fetch('/api/send-email', {
@@ -547,7 +551,7 @@ export const Loans: React.FC<LoansProps> = ({ user, notify }) => {
                             )}
                             {first.prestatario_correo && (
                               <button 
-                                onClick={() => handleSendEmail(first)}
+                                onClick={() => handleSendEmail(items)}
                                 disabled={sendingEmailId === first.id}
                                 className={`size-9 rounded-xl flex items-center justify-center transition-colors ${sendingEmailId === first.id ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
                                 title="Recordatorio por Correo"

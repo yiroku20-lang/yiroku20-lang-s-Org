@@ -216,15 +216,17 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
           const rawData = lines.slice(1).map(line => {
               const parts = line.split(delimiter).map(p => p.trim().replace(/^"|"$/g, ''));
               return { code: parts[0] || '', name: (parts[1] || '').toUpperCase() };
-          }).filter(item => item.code !== '');
+          }).filter(item => item.code !== '' || item.name !== '');
 
-          const codes = rawData.map(d => d.code);
+          const exactCodes = Array.from(new Set(rawData.map(d => d.code).filter(Boolean)));
+          const exactNames = Array.from(new Set(rawData.map(d => d.name).filter(Boolean)));
           
           try {
               let dbMatches: any[] = [];
               const chunkSize = 200;
-              for (let i = 0; i < codes.length; i += chunkSize) {
-                  const chunk = codes.slice(i, i + chunkSize);
+              
+              for (let i = 0; i < exactCodes.length; i += chunkSize) {
+                  const chunk = exactCodes.slice(i, i + chunkSize);
                   const { data, error } = await supabase
                       .from('participantes')
                       .select('*')
@@ -233,10 +235,25 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
                   if (data) dbMatches = dbMatches.concat(data);
               }
 
+              for (let i = 0; i < exactNames.length; i += chunkSize) {
+                  const chunk = exactNames.slice(i, i + chunkSize);
+                  const { data, error } = await supabase
+                      .from('participantes')
+                      .select('*')
+                      .in('NOMBRE', chunk);
+                  if (error) throw error;
+                  if (data) {
+                      const newMatches = data.filter(d => !dbMatches.some(dm => dm.id === d.id));
+                      dbMatches = dbMatches.concat(newMatches);
+                  }
+              }
+
               const results: BatchResult[] = rawData.map(item => {
-                  const matches = dbMatches?.filter(m => 
-                      String(m.CODPOSTULANTE).trim() === String(item.code).trim()
-                  ) || [];
+                  const matches = dbMatches?.filter(m => {
+                      const matchCode = item.code ? String(m.CODPOSTULANTE).trim() === String(item.code).trim() : false;
+                      const matchName = item.name ? String(m.NOMBRE).trim() === String(item.name).trim() : false;
+                      return matchCode || matchName;
+                  }) || [];
                   
                   return {
                       originalCode: item.code,

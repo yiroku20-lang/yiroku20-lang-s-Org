@@ -62,16 +62,25 @@ export const handler = async (event: any) => {
 
     let sentCount = 0;
     
-    for (const loan of loans) {
-      const rawDate = loan.fecha_limite.includes('T') ? loan.fecha_limite.split('T')[0] : loan.fecha_limite;
+    const groupedLoans = loans.reduce((acc: any, loan: any) => {
+      const key = loan.prestatario_correo;
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(loan);
+      return acc;
+    }, {});
+
+    for (const [email, userLoans] of Object.entries(groupedLoans) as [string, any[]][]) {
+      const first = userLoans[0];
+      const bienesList = userLoans.map(i => `- ${i.inventario_bienes?.nombre_bien || 'Bien sin nombre'}`).join('\n');
+      
+      const rawDate = first.fecha_limite.includes('T') ? first.fecha_limite.split('T')[0] : first.fecha_limite;
       const dLimite = new Date(rawDate + 'T12:00:00').toLocaleDateString();
-      const itemName = loan.inventario_bienes?.nombre_bien || 'un bien prestado';
       
       await transporter.sendMail({
         from: `"Admisión UNSAAC" <${process.env.GMAIL_USER || "admision@unsaac.edu.pe"}>`,
-        to: loan.prestatario_correo,
+        to: email,
         subject: 'URGENTE: Recordatorio Automático de Devolución - UNSAAC',
-        text: `Hola ${loan.prestatario_nombre},\n\nTe escribimos de la Oficina de Admisión UNSAAC de manera automática para recordarte que la fecha límite para la devolución de: "${itemName}" fue/es el ${dLimite}.\n\nPor favor, acércate a la oficina con urgencia para regularizar la situación del equipo.\n\nSaludos cordiales,\nSistema Automático de Admisión UNSAAC`,
+        text: `Hola ${first.prestatario_nombre},\n\nTe escribimos de la Oficina de Admisión UNSAAC de manera automática para recordarte que la fecha límite para la devolución de los siguientes bienes fue/es el ${dLimite}.\n\nBienes pendientes:\n${bienesList}\n\nPor favor, acércate a la oficina con urgencia para regularizar la situación del equipo.\n\nSaludos cordiales,\nSistema Automático de Admisión UNSAAC`,
       });
       
       sentCount++;
