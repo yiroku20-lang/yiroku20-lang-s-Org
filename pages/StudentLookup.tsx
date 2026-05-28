@@ -2,6 +2,9 @@ import React, { useState, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { Participant, User } from '../types';
 import { useNavigate } from 'react-router-dom';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 type SearchMode = 'individual' | 'batch' | 'import';
 
@@ -272,6 +275,82 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
           }
       };
       reader.readAsText(file);
+  };
+
+  const handleExportCruceExcel = () => {
+      if (batchResults.length === 0) return;
+      
+      const formattedData = batchResults.map(res => {
+          const found = res.found ? 'ENCONTRADO' : 'NO ENCONTRADO';
+          let detail = '';
+          if (res.allMatches.length === 1) {
+              detail = `${res.allMatches[0].ESCUELA} - ${res.allMatches[0].SEMESTRE_INGRESO || res.allMatches[0].PERIODO_INGRESO || 'N/A'} - MODALIDAD: ${res.allMatches[0].MODALIDAD_INGRESO || 'N/A'}`;
+          } else if (res.allMatches.length > 1) {
+              detail = `Múltiples ingresos (${res.allMatches.length})`;
+          }
+          
+          return {
+              'Código/DNI Original': res.originalCode,
+              'Nombre Original': res.originalName,
+              'Estado': found,
+              'Detalle Encontrado': detail,
+              'Nombres Coincidentes': res.allMatches.map(m => m.NOMBRE).join(' | ')
+          };
+      });
+
+      const worksheet = XLSX.utils.json_to_sheet(formattedData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Resultados_Cruce');
+      
+      XLSX.writeFile(workbook, `Reporte_Cruce_Masivo_${new Date().getTime()}.xlsx`);
+  };
+
+  const handleExportCrucePdf = () => {
+      if (batchResults.length === 0) return;
+      
+      const doc = new jsPDF('landscape');
+      
+      doc.setFontSize(16);
+      doc.text('Reporte de Cruce Masivo de Ingresantes', 14, 20);
+      
+      doc.setFontSize(10);
+      doc.text(`Fecha de generación: ${new Date().toLocaleString()}`, 14, 28);
+      doc.text(`Total procesados: ${batchResults.length} | Encontrados: ${batchResults.filter(r => r.found).length} | No Encontrados: ${batchResults.filter(r => !r.found).length}`, 14, 34);
+
+      const tableData = batchResults.map(res => {
+          let detail = '';
+          if (res.allMatches.length === 1) {
+              detail = `${res.allMatches[0].ESCUELA}\n${res.allMatches[0].SEMESTRE_INGRESO || res.allMatches[0].PERIODO_INGRESO || 'N/A'}`;
+          } else if (res.allMatches.length > 1) {
+              detail = `Múltiples ingresos (${res.allMatches.length})`;
+          }
+          
+          return [
+              res.originalCode || '-',
+              res.originalName || '-',
+              res.found ? 'ENCONTRADO' : 'NO ENCONTRADO',
+              detail || '-',
+              res.allMatches.map(m => m.NOMBRE).join('\n') || '-'
+          ];
+      });
+
+      autoTable(doc, {
+          startY: 40,
+          head: [['Código/DNI', 'Nombre Buscado', 'Estado', 'Carrera/Periodo', 'Nombres Equivalentes']],
+          body: tableData,
+          theme: 'striped',
+          headStyles: { fillColor: [15, 23, 42] },
+          styles: { fontSize: 8 },
+          columnStyles: {
+              0: { cellWidth: 25 },
+              1: { cellWidth: 50 },
+              2: { cellWidth: 25 },
+              3: { cellWidth: 70 },
+              4: { cellWidth: 'auto' }
+          }
+      });
+
+      doc.save(`Reporte_Cruce_Masivo_${new Date().getTime()}.pdf`);
   };
 
   // Import Logic
@@ -798,8 +877,18 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
                             </div>
                         </div>
                         <input type="file" accept=".csv" ref={fileInputRef} className="hidden" onChange={handleFileUpload}/>
-                        <div className="flex gap-2">
-                             {batchResults.length > 0 && <button onClick={() => setBatchResults([])} className="px-5 h-12 rounded-xl text-xs font-black uppercase text-slate-400 hover:text-slate-600">Limpiar</button>}
+                        <div className="flex flex-wrap gap-2 justify-end">
+                             {batchResults.length > 0 && (
+                                 <>
+                                     <button onClick={handleExportCruceExcel} className="px-5 h-12 bg-green-50 text-green-600 rounded-xl text-xs font-black uppercase hover:bg-green-100 transition-colors flex items-center gap-2">
+                                         <span className="material-symbols-outlined text-sm">table_view</span> Excel
+                                     </button>
+                                     <button onClick={handleExportCrucePdf} className="px-5 h-12 bg-red-50 text-red-600 rounded-xl text-xs font-black uppercase hover:bg-red-100 transition-colors flex items-center gap-2">
+                                         <span className="material-symbols-outlined text-sm">picture_as_pdf</span> PDF
+                                     </button>
+                                     <button onClick={() => setBatchResults([])} className="px-5 h-12 rounded-xl text-xs font-black uppercase text-slate-400 hover:bg-slate-100 transition-colors">Limpiar</button>
+                                 </>
+                             )}
                              <button onClick={() => fileInputRef.current?.click()} disabled={isProcessingBatch} className="px-8 h-12 bg-slate-900 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-xl shadow-slate-900/20 active:scale-95 transition-all flex items-center gap-2">
                                  {isProcessingBatch ? <span className="material-symbols-outlined animate-spin">progress_activity</span> : <span className="material-symbols-outlined">add</span>}
                                  {isProcessingBatch ? 'BUSCANDO...' : 'PROCESAR CSV'}
