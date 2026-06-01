@@ -12,6 +12,7 @@ interface BatchResult {
     originalCode: string;
     originalName: string;
     found: boolean;
+    status: 'EXACT' | 'PROBABLE' | 'NOT_FOUND';
     allMatches: Participant[];
 }
 
@@ -252,17 +253,37 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
               }
 
               const results: BatchResult[] = rawData.map(item => {
-                  const matches = dbMatches?.filter(m => {
+                  let exactMatches: Participant[] = [];
+                  let probableMatches: Participant[] = [];
+
+                  dbMatches?.forEach(m => {
                       const matchCode = item.code ? String(m.CODPOSTULANTE).trim() === String(item.code).trim() : false;
                       const matchName = item.name ? String(m.NOMBRE).trim() === String(item.name).trim() : false;
-                      return matchCode || matchName;
-                  }) || [];
+                      
+                      const hasCodeStr = !!item.code;
+                      const hasNameStr = !!item.name;
+
+                      if (hasCodeStr && hasNameStr) {
+                          if (matchCode && matchName) exactMatches.push(m);
+                          else if (matchCode || matchName) probableMatches.push(m);
+                      } else if (hasNameStr) {
+                          if (matchName) exactMatches.push(m);
+                      } else if (hasCodeStr) {
+                          if (matchCode) exactMatches.push(m);
+                      }
+                  });
                   
+                  const finalMatches = exactMatches.length > 0 ? exactMatches : probableMatches;
+                  let s: 'EXACT' | 'PROBABLE' | 'NOT_FOUND' = 'NOT_FOUND';
+                  if (exactMatches.length > 0) s = 'EXACT';
+                  else if (probableMatches.length > 0) s = 'PROBABLE';
+
                   return {
                       originalCode: item.code,
                       originalName: item.name,
-                      found: matches.length > 0,
-                      allMatches: matches
+                      found: finalMatches.length > 0,
+                      status: s,
+                      allMatches: finalMatches
                   };
               });
               setBatchResults(results);
@@ -281,7 +302,8 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
       if (batchResults.length === 0) return;
       
       const formattedData = batchResults.map(res => {
-          const found = res.found ? 'ENCONTRADO' : 'NO ENCONTRADO';
+          const statusMap = { 'EXACT': 'CONFIRMADO', 'PROBABLE': 'PROBABLE', 'NOT_FOUND': 'NO ENCONTRADO' };
+          const found = statusMap[res.status];
           let detail = '';
           if (res.allMatches.length === 1) {
               detail = `${res.allMatches[0].ESCUELA} - ${res.allMatches[0].SEMESTRE_INGRESO || res.allMatches[0].PERIODO_INGRESO || 'N/A'} - MODALIDAD: ${res.allMatches[0].MODALIDAD_INGRESO || 'N/A'}`;
@@ -315,7 +337,12 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
       
       doc.setFontSize(10);
       doc.text(`Fecha de generación: ${new Date().toLocaleString()}`, 14, 28);
-      doc.text(`Total procesados: ${batchResults.length} | Encontrados: ${batchResults.filter(r => r.found).length} | No Encontrados: ${batchResults.filter(r => !r.found).length}`, 14, 34);
+      
+      const exactCount = batchResults.filter(r => r.status === 'EXACT').length;
+      const probCount = batchResults.filter(r => r.status === 'PROBABLE').length;
+      const notFoundCount = batchResults.filter(r => r.status === 'NOT_FOUND').length;
+      
+      doc.text(`Total procesados: ${batchResults.length} | Confirmados: ${exactCount} | Probables: ${probCount} | No Encontrados: ${notFoundCount}`, 14, 34);
 
       const tableData = batchResults.map(res => {
           let detail = '';
@@ -325,10 +352,12 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
               detail = `Múltiples ingresos (${res.allMatches.length})`;
           }
           
+          const statusMap = { 'EXACT': 'CONFIRMADO', 'PROBABLE': 'PROBABLE', 'NOT_FOUND': 'NO ENCONTRADO' };
+          
           return [
               res.originalCode || '-',
               res.originalName || '-',
-              res.found ? 'ENCONTRADO' : 'NO ENCONTRADO',
+              statusMap[res.status],
               detail || '-',
               res.allMatches.map(m => m.NOMBRE).join('\n') || '-'
           ];
@@ -917,8 +946,12 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
                                             <td className="px-6 py-4 font-mono text-xs font-bold text-slate-700">{res.originalCode}</td>
                                             <td className="px-6 py-4 font-black text-slate-800 text-xs uppercase">{res.originalName}</td>
                                             <td className="px-6 py-4 text-center">
-                                                <span className={`inline-flex px-2 py-0.5 rounded text-[9px] font-black uppercase border ${res.found ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
-                                                    {res.found ? 'INGRESANTE' : 'NO REGISTRADO'}
+                                                <span className={`inline-flex px-2 py-0.5 rounded text-[9px] font-black uppercase border ${
+                                                    res.status === 'EXACT' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
+                                                    (res.status === 'PROBABLE' ? 'bg-amber-50 text-amber-700 border-amber-200' : 
+                                                    'bg-red-50 text-red-700 border-red-200')
+                                                }`}>
+                                                    {res.status === 'EXACT' ? 'CONFIRMADO' : (res.status === 'PROBABLE' ? 'PROBABLE' : 'NO REGISTRADO')}
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4">

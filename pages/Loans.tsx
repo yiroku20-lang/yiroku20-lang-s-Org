@@ -315,7 +315,11 @@ export const Loans: React.FC<LoansProps> = ({ user, notify }) => {
           .in('id', newLoan.bienes_seleccionados.map(b => b.id));
       if (invError) throw invError;
 
-      notify('Préstamos registrados correctamente');
+      if (newLoan.prestatario_correo) {
+          notify('Préstamos registrados. El correo de confirmación será enviado automáticamente por el sistema.', 'success');
+      } else {
+          notify('Préstamos registrados correctamente');
+      }
       setIsLoanModalOpen(false);
       setNewLoan({ bienes_seleccionados: [], prestatario_dni: '', prestatario_nombre: '', prestatario_correo: '', prestatario_celular: '', fecha_limite: '' });
       setSearchBienTerm('');
@@ -326,7 +330,7 @@ export const Loans: React.FC<LoansProps> = ({ user, notify }) => {
     }
   };
 
-  const handleReceive = async (loanId: string, bienId: string) => {
+  const handleReceive = async (loan: LoanRecord) => {
     // Confirmación nativa sin window.confirm para entornos iframe
     // Aquí podemos omitir el window.confirm y hacer la acción directa
     // ya que en iframes puede bloquearse
@@ -335,13 +339,17 @@ export const Loans: React.FC<LoansProps> = ({ user, notify }) => {
         estado_prestamo: 'Devuelto',
         fecha_recepcion: new Date().toISOString(),
         usuario_recepcion: user.name
-      }).eq('id', loanId);
+      }).eq('id', loan.id);
       if (err1) throw err1;
 
-      const { error: err2 } = await supabase.from('inventario_bienes').update({ estado_actual: 'Disponible' }).eq('id', bienId);
+      const { error: err2 } = await supabase.from('inventario_bienes').update({ estado_actual: 'Disponible' }).eq('id', loan.bien_id);
       if (err2) throw err2;
 
-      notify('Bien recepcionado correctamente');
+      if (loan.prestatario_correo) {
+          notify('Bien recepcionado. El correo de agradecimiento será enviado automáticamente por el sistema.', 'success');
+      } else {
+          notify('Bien recepcionado correctamente', 'success');
+      }
       fetchLoans();
     } catch (error: any) {
       notify(`Error: ${error.message}`, 'error');
@@ -592,7 +600,7 @@ export const Loans: React.FC<LoansProps> = ({ user, notify }) => {
                                 </div>
                               ) : (
                                 <button 
-                                  onClick={() => handleReceive(loan.id, loan.bien_id)}
+                                  onClick={() => handleReceive(loan)}
                                   className="px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg text-xs font-black uppercase tracking-widest transition-colors flex items-center gap-2"
                                   title="Registrar Recepción de este Bien"
                                 >
@@ -867,7 +875,7 @@ export const Loans: React.FC<LoansProps> = ({ user, notify }) => {
                           {personSearchResults.map(p => (
                               <div key={p.id} 
                                    className="px-4 py-3 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-0"
-                                   onClick={() => {
+                                   onMouseDown={() => {
                                        setNewLoan({...newLoan, prestatario_nombre: p.nombre, prestatario_dni: p.dni, prestatario_correo: p.correo || '', prestatario_celular: p.telefono || ''});
                                        setSelectedPersonFromDropdown(true);
                                        setShowPersonDropdown(false);

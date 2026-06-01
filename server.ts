@@ -20,7 +20,7 @@ async function startServer() {
       // Usamos una contraseña directa en el código para evitar tener que configurar una variable en Netlify
       const cronSecret = process.env.CRON_SECRET || "UnsaacAdminCron2026_SuperSecreto!";
       
-      const token = typeof authHeader === 'string' ? authHeader.replace(/^Bearer\s+/i, '').replace(/^Portador\s+/i, '') : '';
+      const token = (typeof authHeader === 'string' ? authHeader.replace(/^Bearer\s+/i, '').replace(/^Portador\s+/i, '') : '') || req.query.token || req.query.key;
       
       if (!token || token !== cronSecret) {
         return res.status(401).json({ error: "No autorizado. Token de CRON inválido o no configurado." });
@@ -282,6 +282,98 @@ async function startServer() {
       res.status(500).json({ error: error.message });
     }
   });
+
+  // --- Webhook for Loans (Prestamos) ---
+  const prestamosWebhookHandler = async (req: any, res: any) => {
+    try {
+      const payload = req.body;
+      if (!payload || !payload.type || !payload.record) {
+        return res.status(400).json({ error: "Payload no válido de Supabase." });
+      }
+
+      const { type, record, old_record } = payload;
+      
+      const prestatarioCorreo = record.prestatario_correo;
+      const prestatarioNombre = record.prestatario_nombre;
+      
+      if (!prestatarioCorreo) {
+        return res.status(200).json({ message: "No hay correo para notificar, omitiendo." });
+      }
+
+      const gmailUser = process.env.GMAIL_USER || "admision@unsaac.edu.pe";
+      const gmailPass = process.env.GMAIL_APP_PASSWORD || "oaki mixo wlwa pecc";
+
+      if (!gmailUser || !gmailPass) {
+        return res.status(500).json({ error: "Credenciales de correo no configuradas." });
+      }
+
+      const transporter = nodemailer.createTransport({
+        service: "gmail",
+        auth: {
+          user: gmailUser,
+          pass: gmailPass,
+        },
+      });
+
+      // Fetch the item name from inventory
+      const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://cnqpzyanmmwspvemcfeb.supabase.co";
+      const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
+      const supabase = createClient(supabaseUrl, supabaseKey);
+
+      const { data: bienData, error } = await supabase
+        .from('inventario_bienes')
+        .select('nombre_bien, codigo_barras')
+        .eq('id', record.bien_id)
+        .single();
+        
+      if (error && error.code !== 'PGRST116') {
+         console.error("Error fetching inventario_bienes:", error);
+      }
+      
+      const nombreBien = bienData?.nombre_bien || 'Bien sin nombre';
+      const codigoBien = bienData?.codigo_barras || record.bien_id;
+
+      if (type === 'INSERT') {
+          // Newly created loan
+          const safeFechaLimite = record.fecha_limite ? new Date(record.fecha_limite).toLocaleDateString() : 'N/A';
+          
+          const subject = 'Confirmación de Préstamo de Bienes - UNSAAC';
+          const text = `Hola ${prestatarioNombre},\n\nTe escribimos de la Oficina de Admisión UNSAAC para confirmar el registro del préstamo del siguiente bien:\n\n- ${nombreBien} (Cod: ${codigoBien})\n\nTe comprometes a devolver este bien con fecha límite: ${safeFechaLimite}.\n\nSaludos cordiales,\nOficina de Admisión UNSAAC`;
+          
+          await transporter.sendMail({
+            from: `"Admisión UNSAAC" <${gmailUser}>`,
+            to: prestatarioCorreo,
+            subject,
+            text,
+          });
+          
+          return res.status(200).json({ success: true, message: "Correo de préstamo enviado exitosamente." });
+      } else if (type === 'UPDATE' && record.estado_prestamo === 'Devuelto' && old_record && old_record.estado_prestamo === 'Activo') {
+          // Loan marked as returned
+          const subject = 'Confirmación de Devolución de Bienes - UNSAAC';
+          const text = `Hola ${prestatarioNombre},\n\nTe escribimos de la Oficina de Admisión UNSAAC para agradecerte la devolución del siguiente bien:\n\n- ${nombreBien} (Cod: ${codigoBien})\n\nTu registro se encuentra ahora actualizado.\n\nSaludos cordiales,\nOficina de Admisión UNSAAC`;
+          
+          await transporter.sendMail({
+            from: `"Admisión UNSAAC" <${gmailUser}>`,
+            to: prestatarioCorreo,
+            subject,
+            text,
+          });
+          
+          return res.status(200).json({ success: true, message: "Correo de devolución enviado exitosamente." });
+      } else {
+          return res.status(200).json({ message: "No applicable event to process." });
+      }
+      
+    } catch (error: any) {
+      console.error("Webhook Prestamos Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  };
+
+  app.post("/api/webhooks/prestamos", express.json({ limit: "5mb" }), prestamosWebhookHandler);
+  app.post("/api/webhook/prestamos", express.json({ limit: "5mb" }), prestamosWebhookHandler);
+  app.post("/.netlify/functions/webhook-prestamos", express.json({ limit: "5mb" }), prestamosWebhookHandler);
 
   // --- 3. REGULAR EMAIL ENDPOINT (MANUAL SEND) ---
   // Support both local and Netlify function paths for transparency

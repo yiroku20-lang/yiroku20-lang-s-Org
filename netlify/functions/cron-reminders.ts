@@ -13,7 +13,7 @@ export const handler = async (event: any) => {
     const authHeader = event.headers.authorization || event.headers.Authorization || event.headers['autorización'] || event.headers['Autorización'] || event.headers['autorizacion'];
     const cronSecret = process.env.CRON_SECRET || "UnsaacAdminCron2026_SuperSecreto!";
     
-    const token = authHeader ? authHeader.replace(/^Bearer\s+/i, '').replace(/^Portador\s+/i, '') : '';
+    const token = (authHeader ? authHeader.replace(/^Bearer\s+/i, '').replace(/^Portador\s+/i, '') : '') || event.queryStringParameters?.token || event.queryStringParameters?.key;
     
     if (!token || token !== cronSecret) {
       return {
