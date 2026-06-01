@@ -1,5 +1,4 @@
 import nodemailer from 'nodemailer';
-import { createClient } from '@supabase/supabase-js';
 
 export const handler = async (event: any) => {
   if (event.httpMethod !== 'POST') {
@@ -46,23 +45,35 @@ export const handler = async (event: any) => {
       },
     });
 
-    // Fetch the item name from inventory
+    // Fetch the item name from inventory natively using fetch
     const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://cnqpzyanmmwspvemcfeb.supabase.co";
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
-    const { data: bienData, error } = await supabase
-      .from('inventario_bienes')
-      .select('nombre_bien, codigo_barras')
-      .eq('id', record.bien_id)
-      .single();
-      
-    if (error && error.code !== 'PGRST116') {
-       console.error("Error fetching inventario_bienes:", error);
-    }
     
-    const nombreBien = bienData?.nombre_bien || 'Bien sin nombre';
-    const codigoBien = bienData?.codigo_barras || record.bien_id;
+    let nombreBien = 'Bien sin nombre';
+    let codigoBien = record.bien_id;
+
+    try {
+      const response = await fetch(`${supabaseUrl}/rest/v1/inventario_bienes?id=eq.${record.bien_id}&select=nombre_bien,codigo_barras`, {
+        method: 'GET',
+        headers: {
+          'apikey': supabaseKey,
+          'Authorization': `Bearer ${supabaseKey}`,
+          'Content-Profile': 'public'
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.length > 0) {
+          nombreBien = data[0].nombre_bien || nombreBien;
+          codigoBien = data[0].codigo_barras || codigoBien;
+        }
+      } else {
+        console.error("Error fetching inventario_bienes status:", response.status);
+      }
+    } catch (e) {
+      console.error("Error executing fetch:", e);
+    }
 
     if (type === 'INSERT') {
         const safeFechaLimite = record.fecha_limite ? new Date(record.fecha_limite).toLocaleDateString() : 'N/A';

@@ -21,6 +21,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/webhook/prestamos"
+  to = "/.netlify/functions/webhook-prestamos"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
