@@ -47,7 +47,6 @@ export const VacancyChart: React.FC<{ user: User, notify: (msg: string, type?: T
   const [isNewCuadroModalOpen, setIsNewCuadroModalOpen] = useState(false);
   const [newAnio, setNewAnio] = useState('');
   
-  const [cuadroToDelete, setCuadroToDelete] = useState<{ id: string, estado: string } | null>(null);
   const [isDeleteModalidadModalOpen, setIsDeleteModalidadModalOpen] = useState(false);
 
   const [isEscuelasModalOpen, setIsEscuelasModalOpen] = useState(false);
@@ -214,41 +213,6 @@ export const VacancyChart: React.FC<{ user: User, notify: (msg: string, type?: T
       loadEditorData(newCuadro);
     } catch (err: any) {
       notify('Error al crear cuadro: ' + err.message, 'error');
-    }
-  };
-
-  const handleDeleteCuadro = async (id: string, estado: string) => {
-    setCuadroToDelete({ id, estado });
-  };
-
-  const confirmDeleteCuadro = async () => {
-    if (!cuadroToDelete) return;
-    const { id } = cuadroToDelete;
-    
-    setCuadroToDelete(null);
-    setLoading(true);
-    try {
-      // 1. Obtener modalidades
-      const { data: modalidades } = await supabase.from('cv_modalidades').select('id').eq('cuadro_id', id);
-      
-      if (modalidades && modalidades.length > 0) {
-        const modalidadIds = modalidades.map(m => m.id);
-        // 2. Eliminar vacantes
-        await supabase.from('cv_vacantes').delete().in('modalidad_id', modalidadIds);
-        // 3. Eliminar modalidades
-        await supabase.from('cv_modalidades').delete().in('id', modalidadIds);
-      }
-      
-      // 4. Eliminar cuadro
-      const { error } = await supabase.from('cv_cuadros_anuales').delete().eq('id', id);
-      if (error) throw error;
-
-      notify('Cuadro eliminado correctamente', 'success');
-      fetchCuadros();
-    } catch (err: any) {
-      notify('Error al eliminar cuadro: ' + err.message, 'error');
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -734,9 +698,6 @@ export const VacancyChart: React.FC<{ user: User, notify: (msg: string, type?: T
                           <span className="material-symbols-outlined text-[20px]">download</span>
                         </a>
                       )}
-                      <button onClick={() => handleDeleteCuadro(c.id, c.estado)} className="size-10 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl flex items-center justify-center transition-all border border-red-100" title="Eliminar Cuadro">
-                        <span className="material-symbols-outlined text-[20px]">delete</span>
-                      </button>
                     </div>
                   </div>
                 ))}
@@ -1648,35 +1609,6 @@ export const VacancyChart: React.FC<{ user: User, notify: (msg: string, type?: T
             <div className="flex gap-3 mt-4">
               <button onClick={() => setIsDeleteModalidadModalOpen(false)} className="flex-1 h-12 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition-all">Cancelar</button>
               <button onClick={confirmDeleteModalidad} className="flex-1 h-12 rounded-xl font-black uppercase tracking-widest text-xs bg-red-600 text-white shadow-lg shadow-red-200 hover:bg-red-700 transition-all">
-                Eliminar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Cuadro Modal */}
-      {cuadroToDelete && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in zoom-in-95">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8">
-            <div className="size-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
-              <span className="material-symbols-outlined text-3xl">warning</span>
-            </div>
-            <h3 className="font-black text-slate-900 uppercase text-xl tracking-tight text-center mb-2">Eliminar Cuadro</h3>
-            
-            {cuadroToDelete.estado === 'Aprobado' ? (
-              <p className="text-sm text-slate-600 text-center mb-6 font-medium">
-                Este cuadro ya está <strong className="text-red-600">aprobado</strong>. ¿Está seguro de que desea eliminarlo? Esta acción es irreversible y eliminará todas las vacantes asociadas.
-              </p>
-            ) : (
-              <p className="text-sm text-slate-600 text-center mb-6 font-medium">
-                ¿Está seguro de eliminar este cuadro de vacantes? Esta acción no se puede deshacer.
-              </p>
-            )}
-            
-            <div className="flex gap-3 mt-4">
-              <button onClick={() => setCuadroToDelete(null)} className="flex-1 h-12 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition-all">Cancelar</button>
-              <button onClick={confirmDeleteCuadro} className="flex-1 h-12 rounded-xl font-black uppercase tracking-widest text-xs bg-red-600 text-white shadow-lg shadow-red-200 hover:bg-red-700 transition-all">
                 Eliminar
               </button>
             </div>
