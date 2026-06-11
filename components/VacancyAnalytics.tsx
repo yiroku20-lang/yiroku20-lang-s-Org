@@ -7,6 +7,7 @@ import {
 } from 'recharts';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import html2canvas from 'html2canvas';
 
 interface VacancyAnalyticsProps {
   onBack: () => void;
@@ -21,8 +22,11 @@ export const VacancyAnalytics: React.FC<VacancyAnalyticsProps> = ({ onBack, noti
   
   const [selectedYears, setSelectedYears] = useState<string[]>([]);
   const [filterArea, setFilterArea] = useState<string>('Todas');
+  const [filterEscuela, setFilterEscuela] = useState<string>('Todas');
+  const [showModalidad, setShowModalidad] = useState<boolean>(false);
   
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const chartRef = useRef<HTMLDivElement>(null);
 
   const [isYearsDropdownOpen, setIsYearsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -97,6 +101,7 @@ export const VacancyAnalytics: React.FC<VacancyAnalyticsProps> = ({ onBack, noti
           anio: cuadro?.anio || 'Desconocido',
           escuela: esc?.nombre || 'Desconocido',
           area: esc?.area || 'Desconocida',
+          modalidad: mod?.nombre || 'Desconocida',
           cantidad: v.cantidad || 0
         };
       }) || [];
@@ -114,8 +119,15 @@ export const VacancyAnalytics: React.FC<VacancyAnalyticsProps> = ({ onBack, noti
     }
   };
 
+  useEffect(() => {
+    setFilterEscuela('Todas');
+  }, [filterArea]);
+
   const years = useMemo(() => Array.from(new Set(data.map(d => d.anio))).sort(), [data]);
   const areas = useMemo(() => Array.from(new Set(data.map(d => d.area))).sort(), [data]);
+  const escuelasList = useMemo(() => {
+    return Array.from(new Set(data.filter(d => filterArea === 'Todas' || d.area === filterArea).map(d => d.escuela))).sort();
+  }, [data, filterArea]);
 
   const yearColors = useMemo(() => {
     const map: Record<string, string> = {};
@@ -124,43 +136,65 @@ export const VacancyAnalytics: React.FC<VacancyAnalyticsProps> = ({ onBack, noti
   }, [years]);
 
   const filteredData = useMemo(() => {
-    return data.filter(d => selectedYears.includes(d.anio) && (filterArea === 'Todas' || d.area === filterArea));
-  }, [data, selectedYears, filterArea]);
+    return data.filter(d => 
+      selectedYears.includes(d.anio) && 
+      (filterArea === 'Todas' || d.area === filterArea) &&
+      (filterEscuela === 'Todas' || d.escuela === filterEscuela)
+    );
+  }, [data, selectedYears, filterArea, filterEscuela]);
 
-  // Chart 1: Evolución Histórica (Total de todos los años, sin filtro de año, pero sí de área)
+  // Chart 1: Evolución Histórica (Total de todos los años, sin filtro de año para generales, pero filtra años para escuela específica)
   const chartEvolucion = useMemo(() => {
-    const grouped = data.filter(d => filterArea === 'Todas' || d.area === filterArea).reduce((acc, curr) => {
+    const isSingleEscuela = filterEscuela !== 'Todas';
+    const grouped = data.filter(d => 
+      (filterArea === 'Todas' || d.area === filterArea) &&
+      (filterEscuela === 'Todas' || d.escuela === filterEscuela) &&
+      (!isSingleEscuela || selectedYears.includes(d.anio))
+    ).reduce((acc, curr) => {
       if (!acc[curr.anio]) acc[curr.anio] = 0;
       acc[curr.anio] += curr.cantidad;
       return acc;
     }, {} as Record<string, number>);
     return Object.entries(grouped).map(([anio, total]) => ({ anio, total })).sort((a, b) => a.anio.localeCompare(b.anio));
-  }, [data, filterArea]);
+  }, [data, filterArea, filterEscuela, selectedYears]);
 
-  // Chart 2: Distribución por Área (Cruzado por años seleccionados, ignora filtro de área)
+  // Chart 2: Distribución por Área (Cruzado por años seleccionados, ignora filtro de área y filtra por escuela si existe)
   const chartAreas = useMemo(() => {
     const areaMap: Record<string, any> = {};
-    data.filter(d => selectedYears.includes(d.anio)).forEach(d => {
+    data.filter(d => 
+      selectedYears.includes(d.anio) &&
+      (filterEscuela === 'Todas' || d.escuela === filterEscuela)
+    ).forEach(d => {
       if (!areaMap[d.area]) areaMap[d.area] = { name: `Área ${d.area}` };
       areaMap[d.area][d.anio] = (areaMap[d.area][d.anio] || 0) + d.cantidad;
     });
     return Object.values(areaMap).sort((a, b) => a.name.localeCompare(b.name));
-  }, [data, selectedYears]);
+  }, [data, selectedYears, filterEscuela]);
 
   // Data that powers the specific Table View (Groups by Area, then by Escuela)
   const tableDataGrouped = useMemo(() => {
-    const grouped: Record<string, Record<string, { area: string; escuela: string; [anio: string]: any }>> = {};
-    const relevantData = data.filter(d => selectedYears.includes(d.anio) && (filterArea === 'Todas' || d.area === filterArea));
+    const grouped: Record<string, Record<string, { area: string; escuela: string; modalidades: Record<string, Record<string, number>>; [anio: string]: any }>> = {};
+    const relevantData = data.filter(d => 
+      selectedYears.includes(d.anio) && 
+      (filterArea === 'Todas' || d.area === filterArea) &&
+      (filterEscuela === 'Todas' || d.escuela === filterEscuela)
+    );
     
     relevantData.forEach(d => {
       if (!grouped[d.area]) grouped[d.area] = {};
       if (!grouped[d.area][d.escuela]) {
-        grouped[d.area][d.escuela] = { area: d.area, escuela: d.escuela };
+        grouped[d.area][d.escuela] = { area: d.area, escuela: d.escuela, modalidades: {} };
       }
       grouped[d.area][d.escuela][d.anio] = (grouped[d.area][d.escuela][d.anio] || 0) + d.cantidad;
+      
+      const mod = d.modalidad || 'Sin Modalidad';
+      if (!grouped[d.area][d.escuela].modalidades[mod]) {
+        grouped[d.area][d.escuela].modalidades[mod] = {};
+      }
+      grouped[d.area][d.escuela].modalidades[mod][d.anio] = (grouped[d.area][d.escuela].modalidades[mod][d.anio] || 0) + d.cantidad;
     });
     return grouped;
-  }, [data, selectedYears, filterArea]);
+  }, [data, selectedYears, filterArea, filterEscuela]);
 
   const yearTotals = useMemo(() => {
     const totals: Record<string, number> = {};
@@ -173,81 +207,145 @@ export const VacancyAnalytics: React.FC<VacancyAnalyticsProps> = ({ onBack, noti
         });
       });
     });
+    
     return totals;
   }, [tableDataGrouped, selectedYears]);
 
-  const exportReportToPDF = () => {
+  const sortedYears = useMemo(() => [...selectedYears].sort((a,b) => b.localeCompare(a)), [selectedYears]);
+
+  const exportReportToPDF = async () => {
     if (selectedYears.length === 0) {
       notify("Debe seleccionar al menos un año para exportar el reporte.");
       return;
     }
 
     setIsGeneratingPDF(true);
-    setTimeout(() => {
-      try {
-        const doc = new jsPDF('l', 'mm', 'a4');
-        doc.setFontSize(16);
-        doc.setFont("helvetica", "bold");
-        doc.text("REPORTE: CUADRO DE VACANTES POR ESCUELAS", 14, 20);
-        
-        doc.setFontSize(10);
-        doc.setFont("helvetica", "normal");
-        doc.text(`Años: ${selectedYears.join(', ')} | Filtro: ${filterArea === 'Todas' ? 'Todas las Áreas' : `Área ${filterArea}`}`, 14, 28);
-        
-        const headRow = [
-          { content: 'ESCUELAS PROFESIONALES', styles: { halign: 'left' } },
-          ...selectedYears.map(y => ({ content: `TOTAL ${y}`, styles: { halign: 'center' } })),
-          { content: 'TENDENCIA', styles: { halign: 'center' } } // Trendline column
-        ];
+    try {
+      const doc = new jsPDF('l', 'mm', 'a4');
+      doc.setFontSize(16);
+      doc.setFont("helvetica", "bold");
+      doc.text("REPORTE: CUADRO DE VACANTES", 14, 20);
+      
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      doc.text(`Años: ${selectedYears.join(', ')} | Filtro: ${filterArea === 'Todas' ? 'Todas las Áreas' : `Área ${filterArea}`}${filterEscuela !== 'Todas' ? ` | Escuela: ${filterEscuela}` : ''}`, 14, 28);
+      
+      let currentY = 35;
 
-        const bodyRows: any[] = [];
-        const areasSorted = Object.keys(tableDataGrouped).sort();
+      // Capture and add the chart image if it exists
+      if (chartRef.current) {
+        const canvas = await html2canvas(chartRef.current, { scale: 2 });
+        const imgData = canvas.toDataURL('image/png');
+        const pdfWidth = doc.internal.pageSize.getWidth() - 28;
+        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+        
+        doc.text("Evolución Histórica General", 14, currentY);
+        currentY += 5;
+        doc.addImage(imgData, 'PNG', 14, currentY, pdfWidth, pdfHeight);
+        currentY += pdfHeight + 15;
+      }
 
-        areasSorted.forEach(area => {
+      const isSingleEscuela = filterEscuela !== 'Todas';
+      
+      const ascYears = [...selectedYears].sort((a,b) => a.localeCompare(b));
+      
+      const headRow: any[] = [
+        { content: 'ESCUELAS PROFESIONALES', styles: { halign: 'left' } },
+        ...sortedYears.map(y => ({ content: `TOTAL ${y}`, styles: { halign: 'center' } }))
+      ];
+      if (!isSingleEscuela) {
+        headRow.push({ content: 'TENDENCIA', styles: { halign: 'center' } }); // Trendline column
+      }
+
+      const bodyRows: any[] = [];
+      
+      const areasSorted = Object.keys(tableDataGrouped).sort();
+
+      areasSorted.forEach(area => {
+        if (!isSingleEscuela) {
           bodyRows.push([
             { content: `ÁREA ${area}`, colSpan: selectedYears.length + 2, styles: { halign: 'center', fontStyle: 'bold', fillColor: [254, 242, 242], textColor: [123, 21, 35] } }
           ]);
-          
-          const escuelas = Object.values(tableDataGrouped[area] as Record<string, any>).sort((a,b) => a.escuela.localeCompare(b.escuela)) as any[];
-          
-          const areaTotals: Record<string, number> = {};
-          selectedYears.forEach(y => areaTotals[y] = 0);
+        }
+        
+        const escuelas = Object.values(tableDataGrouped[area] as Record<string, any>).sort((a,b) => a.escuela.localeCompare(b.escuela)) as any[];
+        
+        const areaTotals: Record<string, number> = {};
+        selectedYears.forEach(y => areaTotals[y] = 0);
 
-          escuelas.forEach(esc => {
-            selectedYears.forEach(y => {
-              areaTotals[y] += (esc[y] || 0);
-            });
-            const row = [
-              { content: esc.escuela },
-              ...selectedYears.map(y => ({ content: (esc[y] || 0).toString(), styles: { halign: 'center' } })),
-              { content: '', _trendData: selectedYears.map(y => esc[y] || 0) }
-            ];
-            bodyRows.push(row);
+        escuelas.forEach(esc => {
+          selectedYears.forEach(y => {
+            areaTotals[y] += (esc[y] || 0);
           });
+          const row: any[] = [
+            { content: esc.escuela },
+            ...sortedYears.map(y => ({ content: (esc[y] || 0).toString(), styles: { halign: 'center' } }))
+          ];
+          if (!isSingleEscuela) {
+            row.push({ content: '', _trendData: ascYears.map(y => esc[y] || 0) });
+          }
+          bodyRows.push(row);
           
+          if (showModalidad && esc.modalidades) {
+            sortedYears.forEach(y => {
+              const modsForYear = Object.keys(esc.modalidades).filter(mod => esc.modalidades[mod][y]);
+              if (modsForYear.length === 0) return;
+              
+              const semRow: any[] = [
+                { content: `   Semestre ${y}`, styles: { textColor: [100, 100, 100], fontStyle: 'bold' } },
+                ...sortedYears.map(() => ({ content: '' }))
+              ];
+              if (!isSingleEscuela) semRow.push({ content: '' });
+              bodyRows.push(semRow);
+
+              modsForYear.sort().forEach(mod => {
+                const modRow: any[] = [
+                  { content: `     - ${mod}`, styles: { textColor: [100, 100, 100], fontStyle: 'italic' } },
+                  ...sortedYears.map(colYear => ({ 
+                    content: y === colYear ? (esc.modalidades[mod][y] || 0).toString() : '', 
+                    styles: { halign: 'center', textColor: [100, 100, 100] } 
+                  }))
+                ];
+                if (!isSingleEscuela) modRow.push({ content: '' });
+                bodyRows.push(modRow);
+              });
+            });
+          }
+        });
+        
+        if (!isSingleEscuela) {
           // Subtotal row
           bodyRows.push([
             { content: `SUBTOTAL ÁREA ${area}`, styles: { halign: 'right', fontStyle: 'bold', fillColor: [248, 250, 252] } }, // slate-50
-            ...selectedYears.map(y => ({ content: areaTotals[y].toString(), styles: { halign: 'center', fontStyle: 'bold', textColor: [123, 21, 35], fillColor: [248, 250, 252] } })),
-            { content: '', _trendData: selectedYears.map(y => areaTotals[y]), styles: { fillColor: [248, 250, 252] } }
+            ...sortedYears.map(y => ({ content: areaTotals[y].toString(), styles: { halign: 'center', fontStyle: 'bold', textColor: [123, 21, 35], fillColor: [248, 250, 252] } })),
+            { content: '', _trendData: ascYears.map(y => areaTotals[y]), styles: { fillColor: [248, 250, 252] } }
           ]);
-        });
+        }
+      });
 
-        const footRow = [
-          { content: 'TOTAL GENERAL', styles: { halign: 'right', fontStyle: 'bold', fillColor: [123, 21, 35], textColor: 255 } },
-          ...selectedYears.map(y => ({ content: yearTotals[y].toString(), styles: { halign: 'center', fontStyle: 'bold', fillColor: [123, 21, 35], textColor: 255 } })),
-          { content: '', styles: { fillColor: [123, 21, 35] } }
-        ];
+      const footRow: any[] = [
+        { content: 'TOTAL GENERAL', styles: { halign: 'right', fontStyle: 'bold', fillColor: [123, 21, 35], textColor: 255 } },
+        ...sortedYears.map(y => ({ content: yearTotals[y].toString(), styles: { halign: 'center', fontStyle: 'bold', fillColor: [123, 21, 35], textColor: 255 } }))
+      ];
+      if (!isSingleEscuela) {
+        footRow.push({ content: '', styles: { fillColor: [123, 21, 35] } });
+      }
 
-        // The autotable signature can be finicky depending on the version, doc passes context
-        autoTable(doc as any, {
-          startY: 35,
-          head: [headRow],
-          body: bodyRows as any,
-          foot: [footRow],
-          theme: 'grid',
-          headStyles: { fillColor: [123, 21, 35], textColor: 255, fontStyle: 'bold' },
-          styles: { fontSize: 8, cellPadding: 2 },
+      // The autotable signature can be finicky depending on the version, doc passes context
+      const margin = { top: 20, right: 14, bottom: 20, left: 14 };
+      if (currentY + 20 > doc.internal.pageSize.getHeight() - margin.bottom) {
+        doc.addPage();
+        currentY = margin.top;
+      }
+
+      autoTable(doc as any, {
+        startY: currentY,
+        head: [headRow],
+        body: bodyRows as any,
+        foot: [footRow],
+        theme: 'grid',
+        headStyles: { fillColor: [123, 21, 35], textColor: 255, fontStyle: 'bold' },
+        styles: { fontSize: 8, cellPadding: 2 },
           columnStyles: { 
             0: { cellWidth: 80 },
             // dynamically target the trendline column which is the last one
@@ -299,7 +397,6 @@ export const VacancyAnalytics: React.FC<VacancyAnalyticsProps> = ({ onBack, noti
       } finally {
         setIsGeneratingPDF(false);
       }
-    }, 100);
   };
 
   if (loading) {
@@ -374,11 +471,33 @@ export const VacancyAnalytics: React.FC<VacancyAnalyticsProps> = ({ onBack, noti
           <select 
             value={filterArea} 
             onChange={e => setFilterArea(e.target.value)}
-            className="h-10 px-4 rounded-xl border-2 border-slate-100 bg-slate-50 text-xs font-bold text-slate-700 outline-none focus:border-emerald-500"
+            className="h-10 max-w-[150px] truncate px-4 rounded-xl border-2 border-slate-100 bg-slate-50 text-xs font-bold text-slate-700 outline-none focus:border-emerald-500"
           >
             <option value="Todas">Todas las Áreas</option>
             {areas.map(a => <option key={a} value={a}>Área {a}</option>)}
           </select>
+
+          <select 
+            value={filterEscuela} 
+            onChange={e => setFilterEscuela(e.target.value)}
+            className="h-10 max-w-[200px] truncate px-4 rounded-xl border-2 border-slate-100 bg-slate-50 text-xs font-bold text-slate-700 outline-none focus:border-emerald-500"
+          >
+            <option value="Todas">Todas las Escuelas</option>
+            {escuelasList.map(e => <option key={e} value={e}>{e}</option>)}
+          </select>
+          
+          <label className="flex items-center gap-2 cursor-pointer h-10 px-4 rounded-xl border-2 border-slate-100 bg-slate-50 text-xs font-bold text-slate-700 hover:border-slate-200 transition-colors">
+            <input 
+              type="checkbox" 
+              className="sr-only peer"
+              checked={showModalidad}
+              onChange={(e) => setShowModalidad(e.target.checked)}
+            />
+            <div className="w-8 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500 relative flex items-center justify-center">
+              <div className="absolute left-[2px] w-[14px] h-[14px] bg-white rounded-full shadow-sm transition-transform peer-checked:translate-x-4"></div>
+            </div>
+            <span>Mostrar Modalidades</span>
+          </label>
         </div>
       </div>
 
@@ -420,7 +539,7 @@ export const VacancyAnalytics: React.FC<VacancyAnalyticsProps> = ({ onBack, noti
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
           {/* Chart 1 */}
-          <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm">
+          <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm" ref={chartRef}>
             <h3 className="font-black text-slate-900 uppercase tracking-tight mb-6">Evolución Histórica General</h3>
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
@@ -483,67 +602,104 @@ export const VacancyAnalytics: React.FC<VacancyAnalyticsProps> = ({ onBack, noti
                 <thead className="bg-[#7b1523] border-b border-[#7b1523]">
                   <tr>
                     <th className="p-3 font-black text-white">ESCUELAS PROFESIONALES</th>
-                    {selectedYears.map(y => (
+                    {sortedYears.map(y => (
                       <th key={y} className="p-3 font-black text-white text-center">TOTAL {y}</th>
                     ))}
-                    <th className="p-3 font-black text-white text-center">TENDENCIA</th>
+                    {filterEscuela === 'Todas' && (
+                      <th className="p-3 font-black text-white text-center">TENDENCIA</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
                   {Object.keys(tableDataGrouped).sort().map(area => {
+                    const ascYears = [...selectedYears].sort((a,b) => a.localeCompare(b));
                     const escuelas = Object.values(tableDataGrouped[area] as Record<string, any>).sort((a, b) => a.escuela.localeCompare(b.escuela)) as any[];
                     const areaTotals: Record<string, number> = {};
-                    selectedYears.forEach(y => areaTotals[y] = 0);
+                    sortedYears.forEach(y => areaTotals[y] = 0);
                     escuelas.forEach(esc => {
-                      selectedYears.forEach(y => {
+                      sortedYears.forEach(y => {
                         areaTotals[y] += (esc[y] || 0);
                       });
                     });
-                    const subtotalSparklineData = selectedYears.map(y => ({ val: areaTotals[y] }));
+                    const subtotalSparklineData = ascYears.map(y => ({ val: areaTotals[y] }));
 
                     return (
                       <React.Fragment key={area}>
-                        <tr>
-                          <td colSpan={selectedYears.length + 2} className="bg-red-50 p-2 font-black text-[#7b1523] text-center uppercase tracking-widest border-y border-[#7b1523]/20 text-xs">
-                            Área {area}
-                          </td>
-                        </tr>
+                        {filterEscuela === 'Todas' && (
+                          <tr>
+                            <td colSpan={sortedYears.length + 2} className="bg-red-50 p-2 font-black text-[#7b1523] text-center uppercase tracking-widest border-y border-[#7b1523]/20 text-xs">
+                              Área {area}
+                            </td>
+                          </tr>
+                        )}
                         {escuelas.map(esc => {
-                          const sparklineData = selectedYears.map(y => ({ val: esc[y] || 0 }));
+                          const sparklineData = ascYears.map(y => ({ val: esc[y] || 0 }));
                           return (
-                            <tr key={esc.escuela} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                              <td className="p-3 font-bold text-slate-700 text-xs whitespace-normal min-w-[280px]">{esc.escuela}</td>
-                              {selectedYears.map(y => (
-                                <td key={y} className="p-3 text-center text-slate-600 font-medium">{esc[y] || 0}</td>
-                              ))}
-                              <td className="p-1 px-3 text-center">
-                                <div className="w-[100px] h-[25px] inline-block mt-1">
-                                  <ResponsiveContainer width="100%" height="100%">
-                                    <LineChart data={sparklineData}>
-                                      <Line type="monotone" dataKey="val" stroke="#7b1523" strokeWidth={2} dot={false} isAnimationActive={false} />
-                                    </LineChart>
-                                  </ResponsiveContainer>
-                                </div>
-                              </td>
-                            </tr>
+                            <React.Fragment key={esc.escuela}>
+                              <tr className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                                <td className="p-3 font-bold text-slate-700 text-xs whitespace-normal min-w-[280px]">{esc.escuela}</td>
+                                {sortedYears.map(y => (
+                                  <td key={y} className="p-3 text-center text-slate-600 font-medium">{esc[y] || 0}</td>
+                                ))}
+                                {filterEscuela === 'Todas' && (
+                                  <td className="p-1 px-3 text-center">
+                                    <div className="w-[100px] h-[25px] inline-block mt-1">
+                                      <ResponsiveContainer width="100%" height="100%">
+                                        <LineChart data={sparklineData}>
+                                          <Line type="monotone" dataKey="val" stroke="#7b1523" strokeWidth={2} dot={false} isAnimationActive={false} />
+                                        </LineChart>
+                                      </ResponsiveContainer>
+                                    </div>
+                                  </td>
+                                )}
+                              </tr>
+                              {showModalidad && sortedYears.map(y => {
+                                const modsForYear = Object.keys(esc.modalidades || {}).filter(mod => esc.modalidades[mod][y]);
+                                if (modsForYear.length === 0) return null;
+                                return (
+                                  <React.Fragment key={`${esc.escuela}-${y}`}>
+                                    <tr className="bg-slate-50/50">
+                                      <td className="pl-8 p-1 font-bold text-slate-600 text-[10px] uppercase tracking-widest bg-slate-100/50">Semestre {y}</td>
+                                      {sortedYears.map(colYear => (
+                                        <td key={`sem-${colYear}`} className="p-1"></td>
+                                      ))}
+                                      {filterEscuela === 'Todas' && <td className="p-1"></td>}
+                                    </tr>
+                                    {modsForYear.sort().map(mod => (
+                                      <tr key={`${esc.escuela}-${y}-${mod}`} className="border-b border-slate-50 hover:bg-slate-50 transition-colors bg-slate-50/20">
+                                        <td className="pl-12 p-2 font-medium text-slate-500 text-xs whitespace-normal min-w-[280px]">- {mod}</td>
+                                        {sortedYears.map(colYear => (
+                                          <td key={colYear} className="p-2 text-center text-slate-500 text-xs">
+                                            {colYear === y ? esc.modalidades[mod][y] || 0 : ''}
+                                          </td>
+                                        ))}
+                                        {filterEscuela === 'Todas' && <td className="p-2"></td>}
+                                      </tr>
+                                    ))}
+                                  </React.Fragment>
+                                );
+                              })}
+                            </React.Fragment>
                           );
                         })}
                         {/* Subtotal row */}
-                        <tr className="bg-slate-50 border-b border-slate-200">
-                          <td className="p-3 font-black text-slate-800 text-xs text-right uppercase">Subtotal Área {area}</td>
-                          {selectedYears.map(y => (
-                            <td key={`subtotal-${y}`} className="p-3 text-center text-[#7b1523] font-black">{areaTotals[y]}</td>
-                          ))}
-                          <td className="p-1 px-3 text-center">
-                            <div className="w-[100px] h-[25px] inline-block mt-1">
-                              <ResponsiveContainer width="100%" height="100%">
-                                <LineChart data={subtotalSparklineData}>
-                                  <Line type="monotone" dataKey="val" stroke="#7b1523" strokeWidth={2} dot={false} isAnimationActive={false} />
-                                </LineChart>
-                              </ResponsiveContainer>
-                            </div>
-                          </td>
-                        </tr>
+                        {filterEscuela === 'Todas' && (
+                          <tr className="bg-slate-50 border-b border-slate-200">
+                            <td className="p-3 font-black text-slate-800 text-xs text-right uppercase">Subtotal Área {area}</td>
+                            {sortedYears.map(y => (
+                              <td key={`subtotal-${y}`} className="p-3 text-center text-[#7b1523] font-black">{areaTotals[y]}</td>
+                            ))}
+                            <td className="p-1 px-3 text-center">
+                              <div className="w-[100px] h-[25px] inline-block mt-1">
+                                <ResponsiveContainer width="100%" height="100%">
+                                  <LineChart data={subtotalSparklineData}>
+                                    <Line type="monotone" dataKey="val" stroke="#7b1523" strokeWidth={2} dot={false} isAnimationActive={false} />
+                                  </LineChart>
+                                </ResponsiveContainer>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
                       </React.Fragment>
                     );
                   })}
@@ -551,10 +707,12 @@ export const VacancyAnalytics: React.FC<VacancyAnalyticsProps> = ({ onBack, noti
                 <tfoot className="bg-[#7b1523] border-t border-[#7b1523]">
                   <tr>
                     <td className="p-3 font-black text-white text-right uppercase tracking-widest text-xs">TOTAL GENERAL</td>
-                    {selectedYears.map(y => (
+                    {sortedYears.map(y => (
                       <td key={`total-${y}`} className="p-3 font-black text-white text-center text-sm">{yearTotals[y]}</td>
                     ))}
-                    <td className="p-3"></td>
+                    {filterEscuela === 'Todas' && (
+                      <td className="p-3"></td>
+                    )}
                   </tr>
                 </tfoot>
               </table>

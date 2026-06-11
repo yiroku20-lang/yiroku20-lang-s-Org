@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { GoogleGenAI } from "@google/genai";
 import { ChatMessage } from '../types';
 
 export const ChatBot: React.FC = () => {
@@ -32,18 +31,19 @@ export const ChatBot: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
-        contents: input,
+      const res = await fetch('/api/gemini', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ input: userMsg.text })
       });
-
-      const text = response.text;
+      const data = await res.json();
       
       const botMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'model',
-        text: text || "Lo siento, no pude generar una respuesta.",
+        text: data.text || "Lo siento, no pude generar una respuesta.",
         timestamp: new Date(),
       };
 

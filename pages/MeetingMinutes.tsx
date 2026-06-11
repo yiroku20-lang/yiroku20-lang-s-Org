@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { User, PersonalDirectorio, ActaSesion, ActaFirmante } from '../types';
 import { Search, Plus, Save, Edit, Trash2, CheckCircle, FileText, FileSignature, Wand2, ArrowLeft, Users, X, UserPlus, Eye, Printer, UploadCloud, Download } from 'lucide-react';
-import { GoogleGenAI } from '@google/genai';
 
 interface Props {
   user: User | null;
@@ -664,11 +663,6 @@ const ActaEditor: React.FC<ActaEditorProps> = ({ acta, onBack, notify, user }) =
     }
     setLoadingAI(true);
     try {
-      const apiKey = process.env.VITE_GEMINI_API_KEY || (import.meta as any).env?.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        throw new Error("No Gemini API key found");
-      }
-      const ai = new GoogleGenAI({ apiKey });
       const promptText = `
 Eres un asistente de redacción institucional especializado en actas de sesión universitaria.
 Tu tarea es reescribir el borrador provisto usando un lenguaje formal, pulcro y adecuado.
@@ -683,17 +677,27 @@ Contenido Borrador:
 ${bruto}
 `;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: promptText,
-        config: {
-          responseMimeType: "application/json",
-          temperature: 0.3,
-          maxOutputTokens: 8192,
-        }
+      const res = await fetch('/api/gemini', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          input: promptText,
+          model: 'gemini-3.0-pro',
+          config: {
+            responseMimeType: "application/json",
+            temperature: 0.3,
+            maxOutputTokens: 8192,
+          }
+        })
       });
       
-      let resText = response.text || '';
+      const resData = await res.json();
+      
+      if (!res.ok) {
+        throw new Error(resData.error || "Error en la respuesta del servidor");
+      }
+      
+      let resText = resData.text || '';
       resText = resText.replace(/^```[a-z]*\n?/gm, '').replace(/```$/gm, '').trim();
       
       try {

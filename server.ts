@@ -3,6 +3,7 @@ import { createServer as createViteServer } from "vite";
 import nodemailer from "nodemailer";
 import { createClient } from "@supabase/supabase-js";
 import cors from "cors";
+import { GoogleGenAI } from "@google/genai";
 
 async function startServer() {
   const app = express();
@@ -11,6 +12,29 @@ async function startServer() {
   app.use(cors());
   // Increase limit for base64 PDF attachments
   app.use(express.json({ limit: "50mb" }));
+
+  // --- GEMINI API ROUTE ---
+  app.post("/api/gemini", async (req, res) => {
+    try {
+      const { input, model, config } = req.body;
+      if (!input) return res.status(400).json({ error: "Input is required" });
+
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || process.env.GEMINI_API_KEY });
+      const requestOptions: any = {
+        model: model || 'gemini-3.0-pro', 
+        contents: input,
+      };
+      if (config) {
+        requestOptions.config = config;
+      }
+      const response = await ai.models.generateContent(requestOptions);
+
+      res.json({ text: response.text });
+    } catch (error: any) {
+      console.error("Gemini API Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
 
   // --- 1. CRON JOB ENDPOINT (AUTOMATED REMINDERS) ---
   const cronHandler = async (req: any, res: any) => {
