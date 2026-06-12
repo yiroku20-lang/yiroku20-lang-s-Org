@@ -277,12 +277,15 @@ export const TemplateEditor: React.FC<Props> = ({ user }) => {
             const canvas = canvasRef.current;
             const container = canvas.parentElement;
             if (container) {
-                canvas.width = container.clientWidth;
-                canvas.height = container.clientHeight;
+                const rect = container.getBoundingClientRect();
+                const dpr = window.devicePixelRatio || 1;
+                canvas.width = rect.width * dpr;
+                canvas.height = rect.height * dpr;
+                canvas.style.width = `${rect.width}px`;
+                canvas.style.height = `${rect.height}px`;
                 const ctx = canvas.getContext('2d');
                 if (ctx) {
-                    ctx.fillStyle = '#ffffff';
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.clearRect(0, 0, canvas.width, canvas.height); // don't fill white
                 }
             }
         }, 50);
@@ -475,11 +478,6 @@ export const TemplateEditor: React.FC<Props> = ({ user }) => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    if (!hasSignature) {
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
-
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
@@ -496,7 +494,7 @@ export const TemplateEditor: React.FC<Props> = ({ user }) => {
     const x = (clientX - rect.left) * scaleX;
     const y = (clientY - rect.top) * scaleY;
 
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 3 * scaleX;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.strokeStyle = '#000000';
@@ -542,8 +540,7 @@ export const TemplateEditor: React.FC<Props> = ({ user }) => {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     setHasSignature(false);
   };
 
@@ -551,7 +548,46 @@ export const TemplateEditor: React.FC<Props> = ({ user }) => {
     if (!hasSignature || !canvasRef.current) return;
     setIsUploading(true);
     try {
-      const blob = await new Promise<Blob | null>(resolve => canvasRef.current?.toBlob(resolve, 'image/png'));
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Could not get canvas context');
+
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imgData.data;
+
+      let minX = canvas.width, minY = canvas.height, maxX = 0, maxY = 0;
+      
+      for (let y = 0; y < canvas.height; y++) {
+        for (let x = 0; x < canvas.width; x++) {
+          const idx = (y * canvas.width + x) * 4;
+          const a = data[idx + 3];
+          if (a > 0) { // Not transparent
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+
+      const padding = 20;
+      minX = Math.max(0, minX - padding);
+      minY = Math.max(0, minY - padding);
+      maxX = Math.min(canvas.width, maxX + padding);
+      maxY = Math.min(canvas.height, maxY + padding);
+
+      const width = maxX - minX;
+      const height = maxY - minY;
+
+      const cropCanvas = document.createElement('canvas');
+      cropCanvas.width = width;
+      cropCanvas.height = height;
+      const cropCtx = cropCanvas.getContext('2d');
+      if (!cropCtx) throw new Error('Could not create crop context');
+      
+      cropCtx.putImageData(ctx.getImageData(minX, minY, width, height), 0, 0);
+
+      const blob = await new Promise<Blob | null>(resolve => cropCanvas.toBlob(resolve, 'image/png'));
       if (blob) {
         const fileName = `firma_${Date.now()}.png`;
         const { error: uploadError } = await supabase.storage
@@ -559,7 +595,7 @@ export const TemplateEditor: React.FC<Props> = ({ user }) => {
           .upload(fileName, blob);
           
         if (uploadError) throw uploadError;
-        showToast('Firma guardada en recursos');
+        showToast('Firma guardada en recursos, con fondo transparente');
         setShowSignaturePad(false);
         clearSignature();
         fetchResources();
@@ -1153,7 +1189,15 @@ export const TemplateEditor: React.FC<Props> = ({ user }) => {
                     <h3 className="font-black text-slate-900 uppercase">Firma Digital (Lienzo Completo)</h3>
                     <button className="text-red-500 font-bold px-4 hover:underline" onClick={() => setShowSignaturePad(false)}>Cerrar</button>
                 </div>
-                <div className="flex-1 relative m-4 md:m-8 bg-white rounded-xl shadow-2xl border-2 border-dashed border-slate-300 overflow-hidden" style={{ touchAction: 'none' }}>
+                <div className="flex-1 relative m-4 md:m-8 rounded-xl shadow-2xl border-2 border-dashed border-slate-300 overflow-hidden" 
+                     style={{ 
+                         touchAction: 'none',
+                         backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='20' height='20' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h10v10H0zm10 10h10v10H10z' fill='%23d1d5db' fill-opacity='0.4' fill-rule='evenodd'/%3E%3C/svg%3E\")",
+                         backgroundColor: '#f3f4f6'
+                     }}>
+                    <div className="absolute top-2 left-2 pointer-events-none opacity-50 text-slate-500 font-bold text-xs">
+                         (FONDO TRANSPARENTE)
+                    </div>
                     <canvas 
                         ref={canvasRef}
                         onMouseDown={startDrawing}

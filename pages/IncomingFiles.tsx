@@ -601,14 +601,94 @@ export const IncomingFiles: React.FC<IncomingFilesProps> = ({ user, notify }) =>
       return content;
   };
 
+  const removeWhiteBackgrounds = async (element: HTMLElement) => {
+      const images = element.querySelectorAll('img');
+      const originalSrcs: { img: HTMLImageElement, src: string, mixBlendMode: string }[] = [];
+      
+      const promises = Array.from(images).map(img => {
+          return new Promise<void>((resolve) => {
+              if (img.style.mixBlendMode === 'multiply') {
+                  const canvas = document.createElement('canvas');
+                  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                  const imageObj = new Image();
+                  
+                  if (img.src.startsWith('http')) {
+                      imageObj.crossOrigin = "Anonymous";
+                  }
+                  
+                  originalSrcs.push({ img, src: img.src, mixBlendMode: img.style.mixBlendMode });
+
+                  imageObj.onload = () => {
+                      // Usar el tamaño original de la imagen para que html2canvas no baje la resolución
+                      canvas.width = imageObj.width;
+                      canvas.height = imageObj.height;
+                      
+                      if (ctx) {
+                          ctx.drawImage(imageObj, 0, 0);
+                          const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                          const data = imgData.data;
+                          
+                          // Recorre pixel por pixel y convierte el blanco/gris claro en transparente
+                          for (let i = 0; i < data.length; i += 4) {
+                              const r = data[i];
+                              const g = data[i + 1];
+                              const b = data[i + 2];
+                              const a = data[i + 3];
+                              
+                              if (a === 0) continue;
+                              
+                              if (r > 200 && g > 200 && b > 200) {
+                                  data[i + 3] = 0; // Transparente
+                              } else if (r > 120 && g > 120 && b > 120 && Math.abs(r-g) < 25 && Math.abs(g-b) < 25) {
+                                  // Bordes suaves
+                                  data[i + 3] = 255 - ((r + g + b) / 3);
+                                  data[i] = 0;
+                                  data[i + 1] = 0;
+                                  data[i + 2] = 0;
+                              }
+                          }
+                          ctx.putImageData(imgData, 0, 0);
+                          
+                          // Usar base64 e inyectarlo en el MISMO elemento img evita problemas con html2canvas y reemplazos de nodos
+                          img.src = canvas.toDataURL('image/png', 1.0);
+                          img.style.mixBlendMode = 'normal'; // HTML2Canvas soporta normal
+                      }
+                      resolve();
+                  };
+                  imageObj.onerror = () => {
+                      console.error("No se pudo cargar la imagen para fondo transparente:", img.src);
+                      resolve();
+                  };
+                  // Add a timestamp cache buster purely to force a clean CORS download if it got cached without CORS
+                  const sep = img.src.includes('?') ? '&' : '?';
+                  imageObj.src = img.src.startsWith('http') ? `${img.src}${sep}cors_bypass=${Date.now()}` : img.src;
+              } else {
+                  resolve();
+              }
+          });
+      });
+      await Promise.all(promises);
+      
+      return () => {
+          // Restaurar a sus urls publicas y mixBlendMode original
+          originalSrcs.forEach(({ img, src, mixBlendMode }) => {
+              img.src = src;
+              img.style.mixBlendMode = mixBlendMode;
+          });
+      };
+  };
+
   const downloadDraftOnly = async () => {
       if (!fileToAttend || !previewRef.current || !selectedStudent) return;
       setIsSubmitting(true);
+      let restoreDOM: (() => void) | null = null;
       try {
           const sanitizedStudentName = selectedStudent.NOMBRE.replace(/[^a-zA-Z0-9]/g, '_');
           const filename = `BORRADOR_${fileToAttend.number}_${sanitizedStudentName}.pdf`;
           
           const element = previewRef.current;
+          restoreDOM = await removeWhiteBackgrounds(element);
+          
           const opt = {
             margin: 0,
             filename: filename,
@@ -633,12 +713,14 @@ export const IncomingFiles: React.FC<IncomingFilesProps> = ({ user, notify }) =>
           if (notify) notify("Error al descargar borrador: " + err.message, 'error');
       } finally {
           setIsSubmitting(false);
+          if (restoreDOM) restoreDOM();
       }
   };
 
   const finalizeAndDownload = async () => {
       if (!fileToAttend || !previewRef.current || !selectedStudent) return;
       setIsSubmitting(true);
+      let restoreDOM: (() => void) | null = null;
       
       try {
           const sanitizedStudentName = selectedStudent.NOMBRE.replace(/[^a-zA-Z0-9]/g, '_');
@@ -651,6 +733,8 @@ export const IncomingFiles: React.FC<IncomingFilesProps> = ({ user, notify }) =>
           } else {
               // 1. Generate PDF Blob
               const element = previewRef.current;
+              restoreDOM = await removeWhiteBackgrounds(element);
+              
               const opt = {
                 margin: 0,
                 filename: filename,
@@ -676,11 +760,13 @@ export const IncomingFiles: React.FC<IncomingFilesProps> = ({ user, notify }) =>
           // 3. Update Status
           await supabase.from('expedientes').update({ status: 'Atendido' }).eq('id', fileToAttend.id);
 
-          // 4. Register in Outgoing Files (if it's a Report)
-          if (manualValues['INFORME']) {
+          const isConstancia = selectedTemplate.category === 'Certificados' || selectedTemplate.name.toLowerCase().includes('constancia');
+
+          // 4. Register in Outgoing Files
+          if (manualValues['INFORME'] || isConstancia) {
               await supabase.from('expedientes_salida').insert([{
-                  doc_type: 'Informe',
-                  doc_number: manualValues['INFORME'],
+                  doc_type: isConstancia ? 'Constancia' : 'Informe',
+                  doc_number: manualValues['INFORME'] || manualValues['CONSTANCIA'] || `C-${fileToAttend.number}`,
                   ref_number: fileToAttend.number,
                   subject: fileToAttend.subject,
                   status: 'Pendiente',
@@ -714,7 +800,6 @@ export const IncomingFiles: React.FC<IncomingFilesProps> = ({ user, notify }) =>
           }
           
           // 6. Send Email if provided and is Constancia
-          const isConstancia = selectedTemplate.category === 'Certificados' || selectedTemplate.name.toLowerCase().includes('constancia');
           if (studentEmail && isConstancia) {
               const reader = new FileReader();
               reader.readAsDataURL(finalPdfBlob);
@@ -764,6 +849,7 @@ export const IncomingFiles: React.FC<IncomingFilesProps> = ({ user, notify }) =>
           if (notify) notify("Error al procesar: " + err.message, 'error');
       } finally {
           setIsSubmitting(false);
+          if (restoreDOM) restoreDOM();
       }
   };
 
