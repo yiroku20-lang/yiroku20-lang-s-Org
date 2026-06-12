@@ -268,6 +268,27 @@ export const TemplateEditor: React.FC<Props> = ({ user }) => {
       }
   };
 
+  // Resize canvas when signature pad opens
+  useEffect(() => {
+    if (showSignaturePad && canvasRef.current) {
+        // Wait a tick for the DOM to render the full screen layout
+        setTimeout(() => {
+            if (!canvasRef.current) return;
+            const canvas = canvasRef.current;
+            const container = canvas.parentElement;
+            if (container) {
+                canvas.width = container.clientWidth;
+                canvas.height = container.clientHeight;
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                }
+            }
+        }, 50);
+    }
+  }, [showSignaturePad]);
+
   // 1. CARGA DE DATOS (Solo actualiza el estado, no el DOM directamente)
   useEffect(() => {
     const fetchTemplate = async () => {
@@ -964,57 +985,27 @@ export const TemplateEditor: React.FC<Props> = ({ user }) => {
                             onChange={handleImageUpload}
                         />
                         
-                        {!showSignaturePad ? (
-                          <div className="flex gap-2">
-                              <button 
-                                  className={`flex-1 border-2 border-dashed border-slate-300 rounded-lg p-4 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-slate-50 hover:border-primary transition-colors active:scale-95 ${isUploading ? 'opacity-50 pointer-events-none' : ''}`}
-                                  onClick={() => imageInputRef.current?.click()}
-                              >
-                                  {isUploading ? (
-                                      <span className="material-symbols-outlined text-primary text-2xl mb-1 animate-spin">progress_activity</span>
-                                  ) : (
-                                      <span className="material-symbols-outlined text-slate-400 text-2xl mb-1">cloud_upload</span>
-                                  )}
-                                  <p className="text-[10px] font-bold text-slate-700 uppercase">Subir Archivo</p>
-                              </button>
+                        <div className="flex gap-2">
+                            <button 
+                                className={`flex-1 border-2 border-dashed border-slate-300 rounded-lg p-4 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-slate-50 hover:border-primary transition-colors active:scale-95 ${isUploading ? 'opacity-50 pointer-events-none' : ''}`}
+                                onClick={() => imageInputRef.current?.click()}
+                            >
+                                {isUploading ? (
+                                    <span className="material-symbols-outlined text-primary text-2xl mb-1 animate-spin">progress_activity</span>
+                                ) : (
+                                    <span className="material-symbols-outlined text-slate-400 text-2xl mb-1">cloud_upload</span>
+                                )}
+                                <p className="text-[10px] font-bold text-slate-700 uppercase">Subir Archivo</p>
+                            </button>
 
-                              <button 
-                                  className="flex-1 border-2 border-dashed border-slate-300 rounded-lg p-4 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-slate-50 hover:border-primary transition-colors active:scale-95"
-                                  onClick={() => setShowSignaturePad(true)}
-                              >
-                                  <span className="material-symbols-outlined text-slate-400 text-2xl mb-1">draw</span>
-                                  <p className="text-[10px] font-bold text-slate-700 uppercase">Dibujar Firma</p>
-                              </button>
-                          </div>
-                        ) : (
-                          <div className="flex flex-col gap-2">
-                             <div className="flex justify-between items-center">
-                                <span className="text-[10px] font-bold text-slate-500 uppercase">Firma Digital</span>
-                                <button className="text-[10px] text-red-500 font-bold hover:underline" onClick={() => setShowSignaturePad(false)}>Cancelar</button>
-                             </div>
-                             <div className="border-2 border-dashed border-slate-300 rounded-lg bg-white overflow-hidden relative h-32">
-                                <canvas 
-                                  ref={canvasRef}
-                                  width={280}
-                                  height={128}
-                                  onMouseDown={startDrawing}
-                                  onMouseMove={drawSignature}
-                                  onMouseUp={stopDrawing}
-                                  onMouseLeave={stopDrawing}
-                                  onTouchStart={startDrawing}
-                                  onTouchMove={drawSignature}
-                                  onTouchEnd={stopDrawing}
-                                  className="w-full h-full cursor-crosshair touch-none"
-                                />
-                             </div>
-                             <div className="flex gap-2">
-                                <button onClick={clearSignature} className="flex-1 py-1.5 bg-slate-100 text-slate-600 rounded text-[10px] font-bold hover:bg-slate-200">Limpiar</button>
-                                <button onClick={saveSignature} disabled={!hasSignature || isUploading} className="flex-[2] py-1.5 bg-primary text-white rounded text-[10px] font-bold hover:bg-blue-700 disabled:opacity-50">
-                                   {isUploading ? 'Guardando...' : 'Guardar Firma'}
-                                </button>
-                             </div>
-                          </div>
-                        )}
+                            <button 
+                                className="flex-1 border-2 border-dashed border-slate-300 rounded-lg p-4 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-slate-50 hover:border-primary transition-colors active:scale-95"
+                                onClick={() => setShowSignaturePad(true)}
+                            >
+                                <span className="material-symbols-outlined text-slate-400 text-2xl mb-1">draw</span>
+                                <p className="text-[10px] font-bold text-slate-700 uppercase">Dibujar Firma</p>
+                            </button>
+                        </div>
                         
                         <div>
                             <div className="flex justify-between items-center mb-3">
@@ -1155,6 +1146,45 @@ export const TemplateEditor: React.FC<Props> = ({ user }) => {
         </div>
 
       </div>
+
+        {showSignaturePad && (
+            <div className="fixed inset-0 bg-slate-900/90 z-[9999] flex flex-col animate-in fade-in duration-200">
+                <div className="p-4 flex justify-between items-center bg-white shadow-md z-10">
+                    <h3 className="font-black text-slate-900 uppercase">Firma Digital (Lienzo Completo)</h3>
+                    <button className="text-red-500 font-bold px-4 hover:underline" onClick={() => setShowSignaturePad(false)}>Cerrar</button>
+                </div>
+                <div className="flex-1 relative m-4 md:m-8 bg-white rounded-xl shadow-2xl border-2 border-dashed border-slate-300 overflow-hidden" style={{ touchAction: 'none' }}>
+                    <canvas 
+                        ref={canvasRef}
+                        onMouseDown={startDrawing}
+                        onMouseMove={drawSignature}
+                        onMouseUp={stopDrawing}
+                        onMouseLeave={stopDrawing}
+                        onTouchStart={startDrawing}
+                        onTouchMove={drawSignature}
+                        onTouchEnd={stopDrawing}
+                        className="w-full h-full cursor-crosshair touch-none absolute inset-0"
+                    />
+                </div>
+                <div className="p-4 md:p-8 bg-slate-100 flex gap-4 md:gap-8 border-t border-slate-200">
+                    <button onClick={clearSignature} className="flex-1 py-4 md:py-6 bg-white border border-slate-300 text-slate-600 rounded-xl font-bold text-sm md:text-xl hover:bg-slate-50 transition-colors shadow-sm uppercase tracking-widest">Limpiar Lienzo</button>
+                    <button onClick={saveSignature} disabled={!hasSignature || isUploading} className="flex-[2] py-4 md:py-6 bg-primary text-white rounded-xl font-bold text-sm md:text-xl hover:bg-red-700 disabled:opacity-50 transition-colors shadow-lg shadow-red-200 flex justify-center items-center gap-2 uppercase tracking-widest">
+                       {isUploading ? (
+                           <>
+                             <span className="material-symbols-outlined animate-spin hidden sm:inline-block">refresh</span>
+                             Guardando...
+                           </>
+                       ) : (
+                           <>
+                             <span className="material-symbols-outlined hidden sm:inline-block">save</span>
+                             Guardar Firma
+                           </>
+                       )}
+                    </button>
+                </div>
+            </div>
+        )}
+
     </div>
   );
 };

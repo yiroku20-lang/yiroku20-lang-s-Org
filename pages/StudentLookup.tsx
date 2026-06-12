@@ -49,14 +49,46 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
 
   const [renuncias, setRenuncias] = useState<any[]>([]);
   const [reservas, setReservas] = useState<any[]>([]);
+  
+  // Local Documents State
+  const [localDocuments, setLocalDocuments] = useState<any[]>([]);
+  const [loadingDocs, setLoadingDocs] = useState(false);
+  const [docsError, setDocsError] = useState<string | null>(null);
 
   const fetchExtraInfo = async (history: Participant[]) => {
       const studentCodes = Array.from(new Set(history.map(s => s.CODPOSTULANTE).filter(Boolean)));
       if (studentCodes.length === 0) {
           setRenuncias([]);
           setReservas([]);
+          setLocalDocuments([]);
           return;
       }
+      
+      // Auto-fetch local documents from hybrid local API for the first code
+      setLoadingDocs(true);
+      setDocsError(null);
+      try {
+          const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+          const resDocs = await fetch(`${apiUrl}/api/files/student-documents/${studentCodes[0]}`);
+          if (!resDocs.ok) {
+              if (resDocs.status === 404) {
+                 setLocalDocuments([]);
+                 setDocsError('No se encontraron documentos en el disco local.');
+              } else {
+                 throw new Error('Servidor local apagado o desconectado.');
+              }
+          } else {
+              const data = await resDocs.json();
+              // Array could be data or data.documents depending on how the other AI returned it
+              setLocalDocuments(data.documents || data || []);
+          }
+      } catch (err: any) {
+          setDocsError(err.message);
+          setLocalDocuments([]);
+      } finally {
+          setLoadingDocs(false);
+      }
+
       try {
           const [renReq, resReq] = await Promise.all([
               supabase.from('renuncias').select('*').in('student_code', studentCodes).eq('status', 'Finalizado'),
@@ -767,6 +799,46 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
                                     <p className="text-[10px] font-black text-blue-800 uppercase tracking-widest mb-1">Último Ingreso</p>
                                     <p className="font-bold text-blue-900 text-sm">{fixEncoding(mainStudent.CARRERA)}</p>
                                     <p className="text-[10px] text-blue-700 font-bold mt-1 uppercase">{mainStudent.MODALIDAD} • {mainStudent.SEMESTRE}-{mainStudent.ANIO}</p>
+                                </div>
+                                <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                                    <div className="flex justify-between items-center mb-2">
+                                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Expediente Físico (H:)</p>
+                                        <span className="material-symbols-outlined text-slate-400 text-[14px]">folder_open</span>
+                                    </div>
+                                    {loadingDocs ? (
+                                        <div className="flex items-center gap-2 text-slate-400 text-xs font-bold">
+                                            <span className="material-symbols-outlined text-[14px] animate-spin">sync</span>
+                                            Buscando en servidor local...
+                                        </div>
+                                    ) : docsError ? (
+                                        <div className="bg-red-50 text-red-600 text-[10px] p-2 rounded border border-red-100 font-bold">
+                                            {docsError}
+                                        </div>
+                                    ) : localDocuments.length > 0 ? (
+                                        <div className="flex flex-col gap-2">
+                                            {localDocuments.map((doc: any, i: number) => {
+                                                const path = typeof doc === 'string' ? doc : doc.path;
+                                                const name = typeof doc === 'string' ? doc.split(/[\/\\]/).pop() : (doc.filename || doc.name || path.split(/[\/\\]/).pop());
+                                                const docUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/files/stream-document?path=${encodeURIComponent(path)}`;
+                                                
+                                                return (
+                                                    <a
+                                                        key={i}
+                                                        href={docUrl}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="flex items-center gap-2 bg-white border border-slate-200 rounded p-2 hover:border-primary hover:shadow-sm transition-all group"
+                                                    >
+                                                        <span className="material-symbols-outlined text-slate-400 group-hover:text-primary text-[18px]">find_in_page</span>
+                                                        <span className="text-[10px] font-bold text-slate-700 group-hover:text-primary truncate flex-1">{name}</span>
+                                                        <span className="material-symbols-outlined text-transparent group-hover:text-primary text-[14px]">open_in_new</span>
+                                                    </a>
+                                                );
+                                            })}
+                                        </div>
+                                    ) : (
+                                        <p className="text-[10px] font-bold text-slate-500">No hay documentos registrados.</p>
+                                    )}
                                 </div>
                             </div>
                         </div>
