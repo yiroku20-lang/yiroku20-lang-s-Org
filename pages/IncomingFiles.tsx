@@ -769,7 +769,8 @@ export const IncomingFiles: React.FC<IncomingFilesProps> = ({ user, notify }) =>
                   doc_number: manualValues['INFORME'] || manualValues['CONSTANCIA'] || `C-${fileToAttend.number}`,
                   ref_number: fileToAttend.number,
                   subject: fileToAttend.subject,
-                  status: 'Pendiente',
+                  destination: isConstancia ? 'ESTUDIANTE' : undefined,
+                  status: isConstancia ? 'Finalizado' : 'Pendiente',
                   pdf_url: urlData.publicUrl,
                   created_by: user.id
               }]);

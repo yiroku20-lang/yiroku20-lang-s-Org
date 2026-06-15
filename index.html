@@ -2,6 +2,23 @@
 <html lang="es">
   <head>
     <meta charset="utf-8" />
+    <script>
+      // Patch window.fetch read-only property in certain iframe/sandboxed environments
+      try {
+        const originalFetch = window.fetch;
+        if (originalFetch) {
+          let currentFetch = originalFetch;
+          Object.defineProperty(window, 'fetch', {
+            get: function() { return currentFetch; },
+            set: function(newFetch) { currentFetch = newFetch; },
+            configurable: true,
+            enumerable: true
+          });
+        }
+      } catch (e) {
+        console.warn("Failed to patch fetch property", e);
+      }
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>UNSAAC Admin Console</title>
     <!-- Google Fonts: Cinzel & Poppins (Identidad Gráfica UNSAAC) -->

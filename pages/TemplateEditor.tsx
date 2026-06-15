@@ -602,7 +602,7 @@ export const TemplateEditor: React.FC<Props> = ({ user }) => {
       }
     } catch (error: any) {
       console.error(error);
-      showToast('Error al guardar firma', 'error');
+      showToast('Error al guardar firma');
     } finally {
       setIsUploading(false);
     }

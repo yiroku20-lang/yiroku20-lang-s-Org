@@ -20,6 +20,15 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
   const navigate = useNavigate();
   const [activeMode, setActiveMode] = useState<SearchMode>('individual');
   
+  // Local API configuration (Cloudflare URL)
+  const defaultApiUrl = 'https://night-fan-profiles-sides.trycloudflare.com';
+  const [localApiUrl] = useState(() => {
+    return localStorage.getItem('local_api_url') || (import.meta as any).env?.VITE_API_URL || defaultApiUrl;
+  });
+  
+  // State for toggling individual folders in local documents
+  const [expandedFolders, setExpandedFolders] = useState<{[key: string]: boolean}>({});
+
   // Individual Search State
   const [searchQuery, setSearchQuery] = useState('');
   const [studentHistory, setStudentHistory] = useState<Participant[]>([]);
@@ -56,6 +65,7 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
   const [docsError, setDocsError] = useState<string | null>(null);
 
   const fetchExtraInfo = async (history: Participant[]) => {
+      setExpandedFolders({});
       const studentCodes = Array.from(new Set(history.map(s => s.CODPOSTULANTE).filter(Boolean)));
       if (studentCodes.length === 0) {
           setRenuncias([]);
@@ -68,7 +78,7 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
       setLoadingDocs(true);
       setDocsError(null);
       try {
-          const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+          const apiUrl = localApiUrl ? localApiUrl.replace(/\/$/, "") : 'https://night-fan-profiles-sides.trycloudflare.com';
           const resDocs = await fetch(`${apiUrl}/api/files/student-documents/${studentCodes[0]}`);
           if (!resDocs.ok) {
               if (resDocs.status === 404) {
@@ -121,6 +131,112 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
       fixed = fixed.replace(/ENFERMER[\uFFFD?]A/g, 'ENFERMERÍA');
       fixed = fixed.replace(/NU[\uFFFD?]EZ/g, 'NUÑEZ').replace(/MU[\uFFFD?]OZ/g, 'MUÑOZ').replace(/ZU[\uFFFD?]IGA/g, 'ZUÑIGA');
       return fixed;
+  };
+
+  const getModalityAndSemesterFromPath = (pathStr: string) => {
+      const segments = pathStr.split(/[\/\\]/).map(s => s.trim()).filter(Boolean);
+      let targetFolder = '';
+      
+      // Look back starting from the parent of the filename (segments.length - 2)
+      for (let i = segments.length - 2; i >= 0; i--) {
+          const seg = segments[i];
+          const isNumeric = /^\d+$/.test(seg);
+          const isDrive = /^[a-zA-Z]:$/.test(seg);
+          // Ignore parent folders of the whole structure that are generic
+          const isGenericRoot = seg.toUpperCase() === 'FOTOS_ARCHIVOS_ADMISION_CEPRU' || seg.toUpperCase() === 'FOTOS_ARCHIVOS_ADMISION';
+          const isSystem = ['API', 'FILES', 'STUDENT-DOCUMENTS', 'STUDENT_DOCUMENTS'].includes(seg.toUpperCase());
+          
+          if (!isNumeric && !isDrive && !isGenericRoot && !isSystem) {
+              targetFolder = seg;
+              break;
+          }
+      }
+      
+      if (!targetFolder) {
+          if (segments.length >= 2) {
+              targetFolder = segments[segments.length - 2];
+          } else {
+              targetFolder = 'EXPEDIENTE GENERAL';
+          }
+      }
+      
+      let displayName = targetFolder.toUpperCase().replace(/_/g, ' ').trim();
+      
+      // Strip out common verbose prefix phrases so folder looks clean and professional
+      displayName = displayName
+          .replace(/^DOCUMENTOS ADMISION DE EL /g, '')
+          .replace(/^DOCUMENTOS ADMISION DE LA /g, '')
+          .replace(/^DOCUMENTOS ADMISION DE /g, '')
+          .replace(/^DOCUMENTOS DE ADMISION /g, '')
+          .replace(/^DOCUMENTOS ADMISION /g, '')
+          .replace(/^DOCUMENTOS /g, '')
+          .replace(/^ARCHIVOS ADMISION /g, '')
+          .trim();
+          
+      // Ensure we format the year-semester code with a hyphen elegantly (e.g. 2023 I -> 2023-I, 2024 II -> 2024-II, 2025_II -> 2025-II)
+      displayName = displayName.replace(/(\d{4})\s+(I+|X+)/g, "$1-$2");
+      displayName = displayName.replace(/(\d{4})-(I+|X+)/g, "$1-$2");
+      
+      return displayName;
+  };
+
+  const getGroupedDocuments = (docs: any[]) => {
+      const groups: { [key: string]: any[] } = {};
+      
+      docs.forEach(doc => {
+          const pathStr = typeof doc === 'string' ? doc : doc.path;
+          const filename = typeof doc === 'string' ? doc.split(/[\/\\]/).pop()! : (doc.filename || doc.name || pathStr.split(/[\/\\]/).pop()!);
+          
+          const groupLabel = getModalityAndSemesterFromPath(pathStr);
+          
+          if (!groups[groupLabel]) {
+              groups[groupLabel] = [];
+          }
+          groups[groupLabel].push({
+              path: pathStr,
+              filename,
+              originalDoc: doc
+          });
+      });
+
+      Object.keys(groups).forEach(groupLabel => {
+          // Sort documents inside this folder alphabetically to guarantee sequential ordering of files (e.g., 1_1_*, 2_1_*, 3_1_*)
+          groups[groupLabel].sort((a, b) => a.filename.localeCompare(b.filename));
+          
+          let pdfCounter = 1;
+          
+          groups[groupLabel] = groups[groupLabel].map(doc => {
+              const ext = doc.filename.split('.').pop()?.toUpperCase() || '';
+              const isPdf = ext === 'PDF';
+              const isImage = ['JPG', 'JPEG', 'PNG', 'WEBP', 'GIF'].includes(ext);
+              
+              let friendlyName = doc.filename;
+              let docTypeLabel = '';
+              
+              if (isImage) {
+                  friendlyName = 'Foto';
+                  docTypeLabel = 'Foto';
+              } else if (isPdf) {
+                  friendlyName = `Doc ${pdfCounter}`;
+                  docTypeLabel = `Doc ${pdfCounter}`;
+                  pdfCounter++;
+              } else {
+                  friendlyName = doc.filename;
+                  docTypeLabel = ext;
+              }
+
+              return {
+                  ...doc,
+                  isPdf,
+                  isImage,
+                  ext,
+                  friendlyName,
+                  docTypeLabel
+              };
+          });
+      });
+      
+      return groups;
   };
 
   const handleSearch = async () => {
@@ -803,36 +919,102 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
                                 <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
                                     <div className="flex justify-between items-center mb-2">
                                         <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Expediente Físico (H:)</p>
-                                        <span className="material-symbols-outlined text-slate-400 text-[14px]">folder_open</span>
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="material-symbols-outlined text-slate-400 text-[14px]">folder_open</span>
+                                        </div>
                                     </div>
+
                                     {loadingDocs ? (
                                         <div className="flex items-center gap-2 text-slate-400 text-xs font-bold">
                                             <span className="material-symbols-outlined text-[14px] animate-spin">sync</span>
                                             Buscando en servidor local...
                                         </div>
                                     ) : docsError ? (
-                                        <div className="bg-red-50 text-red-600 text-[10px] p-2 rounded border border-red-100 font-bold">
-                                            {docsError}
+                                        <div className="flex flex-col gap-1">
+                                            <div className="bg-red-50 text-red-600 text-[10px] p-2 rounded border border-red-100 font-bold">
+                                                {docsError}
+                                            </div>
+                                            <p className="text-[9px] text-slate-400">
+                                                Asegúrate de que el servidor local (H:) esté activo y conectado adecuadamente.
+                                            </p>
                                         </div>
                                     ) : localDocuments.length > 0 ? (
-                                        <div className="flex flex-col gap-2">
-                                            {localDocuments.map((doc: any, i: number) => {
-                                                const path = typeof doc === 'string' ? doc : doc.path;
-                                                const name = typeof doc === 'string' ? doc.split(/[\/\\]/).pop() : (doc.filename || doc.name || path.split(/[\/\\]/).pop());
-                                                const docUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/files/stream-document?path=${encodeURIComponent(path)}`;
-                                                
+                                        <div className="flex flex-col gap-3">
+                                            {Object.entries(getGroupedDocuments(localDocuments)).map(([folderLabel, docsInFolder], groupIdx) => {
+                                                const isExpanded = !!expandedFolders[folderLabel];
                                                 return (
-                                                    <a
-                                                        key={i}
-                                                        href={docUrl}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        className="flex items-center gap-2 bg-white border border-slate-200 rounded p-2 hover:border-primary hover:shadow-sm transition-all group"
-                                                    >
-                                                        <span className="material-symbols-outlined text-slate-400 group-hover:text-primary text-[18px]">find_in_page</span>
-                                                        <span className="text-[10px] font-bold text-slate-700 group-hover:text-primary truncate flex-1">{name}</span>
-                                                        <span className="material-symbols-outlined text-transparent group-hover:text-primary text-[14px]">open_in_new</span>
-                                                    </a>
+                                                    <div key={groupIdx} className="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-sm">
+                                                        {/* Folder Header */}
+                                                        <button
+                                                            onClick={() => setExpandedFolders(prev => ({ ...prev, [folderLabel]: !isExpanded }))}
+                                                            type="button"
+                                                            className="w-full flex items-center justify-between p-2 bg-slate-100 hover:bg-slate-200 transition-colors border-b border-slate-200"
+                                                        >
+                                                            <div className="flex items-center gap-2 text-left min-w-0">
+                                                                <span className="material-symbols-outlined text-amber-500 text-[18px] shrink-0">folder</span>
+                                                                <span className="text-[10px] font-black text-slate-800 uppercase tracking-tight truncate">
+                                                                    {folderLabel}
+                                                                </span>
+                                                                <span className="bg-slate-200 text-slate-700 text-[8px] font-black px-1.5 py-0.5 rounded-full shrink-0">
+                                                                    {docsInFolder.length}
+                                                                </span>
+                                                            </div>
+                                                            <span className="material-symbols-outlined text-slate-500 text-[15px] shrink-0">
+                                                                {isExpanded ? 'expand_less' : 'expand_more'}
+                                                            </span>
+                                                        </button>
+                                                        
+                                                        {/* Documents in Folder */}
+                                                        {isExpanded && (
+                                                            <div className="p-1.5 flex flex-col gap-1.5 bg-slate-55/30">
+                                                                {docsInFolder.map((doc, i) => {
+                                                                    const baseUrl = localApiUrl ? localApiUrl.replace(/\/$/, "") : defaultApiUrl;
+                                                                    const docUrl = `${baseUrl}/api/files/stream-document?path=${encodeURIComponent(doc.path)}`;
+                                                                    
+                                                                    return (
+                                                                        <a
+                                                                            key={i}
+                                                                            href={docUrl}
+                                                                            target="_blank"
+                                                                            rel="noopener noreferrer"
+                                                                            className="flex items-center gap-2 bg-white border border-slate-150 rounded p-1.5 hover:border-primary hover:shadow-sm transition-all group relative overflow-hidden"
+                                                                        >
+                                                                            {/* Accent Left Bar */}
+                                                                            <div className={`absolute left-0 top-0 bottom-0 w-0.5 ${doc.isPdf ? 'bg-red-500' : doc.isImage ? 'bg-blue-500' : 'bg-slate-400'}`} />
+                                                                            
+                                                                            <span className={`material-symbols-outlined shrink-0 text-[16px] ${doc.isPdf ? 'text-red-500' : doc.isImage ? 'text-blue-500' : 'text-slate-400'} pl-0.5`}>
+                                                                                {doc.isPdf ? 'picture_as_pdf' : doc.isImage ? 'image' : 'description'}
+                                                                            </span>
+                                                                            
+                                                                            <div className="flex-1 min-w-0 pr-1">
+                                                                                <p className="text-[9px] font-bold text-slate-800 group-hover:text-primary leading-tight truncate">
+                                                                                    {doc.friendlyName}
+                                                                                </p>
+                                                                                <p className="text-[7.5px] text-slate-400 font-mono truncate select-all mt-0.5">
+                                                                                    {doc.filename}
+                                                                                </p>
+                                                                            </div>
+                                                                            
+                                                                            <div className="flex items-center gap-1 shrink-0">
+                                                                                <span className={`text-[7.5px] font-black px-1 py-0.2 rounded uppercase tracking-wider ${
+                                                                                    doc.isPdf 
+                                                                                        ? 'bg-red-50 text-red-600 border border-red-100' 
+                                                                                        : doc.isImage 
+                                                                                            ? 'bg-blue-50 text-blue-600 border border-blue-100' 
+                                                                                            : 'bg-slate-50 text-slate-600 border border-slate-100'
+                                                                                }`}>
+                                                                                    {doc.ext}
+                                                                                </span>
+                                                                                <span className="material-symbols-outlined text-transparent group-hover:text-primary text-[12px] transition-all">
+                                                                                    open_in_new
+                                                                                </span>
+                                                                            </div>
+                                                                        </a>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 );
                                             })}
                                         </div>
