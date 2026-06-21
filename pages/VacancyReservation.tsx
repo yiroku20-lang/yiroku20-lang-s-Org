@@ -377,6 +377,7 @@ export const VacancyReservation: React.FC<VacancyReservationProps> = ({ user, no
               'NOMBRE COMPLETO': d.student_name,
               'ESCUELA': d.carrera,
               'MODALIDAD': d.admission_modality,
+              'COLEGIO': '',
               'AÑO SECUNDARIA': d.grade_level,
               'INICIO SEMESTRE': d.starting_semester,
               'ESTADO': d.is_withdrawn ? 'RENUNCIA' : 'ACTIVO'
@@ -446,6 +447,7 @@ export const VacancyReservation: React.FC<VacancyReservationProps> = ({ user, no
           'NOMBRE COMPLETO': d.student_name,
           'ESCUELA': d.carrera,
           'MODALIDAD': d.admission_modality,
+          'COLEGIO': '',
           'AÑO SECUNDARIA': d.grade_level,
           'INICIO SEMESTRE': d.starting_semester,
           'INFORME/OFICIO': d.batch?.report_code || '',

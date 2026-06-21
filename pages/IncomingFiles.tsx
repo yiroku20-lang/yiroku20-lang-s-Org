@@ -58,6 +58,7 @@ export const IncomingFiles: React.FC<IncomingFilesProps> = ({ user, notify }) =>
   const [selectedStudent, setSelectedStudent] = useState<Participant | null>(null);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
+  const isConstancia = selectedTemplate ? (selectedTemplate.category === 'Certificados' || selectedTemplate.name.toLowerCase().includes('constancia')) : false;
   
   // Manual Data & Preview States
   const [manualValues, setManualValues] = useState<Record<string, string>>({});
@@ -760,8 +761,6 @@ export const IncomingFiles: React.FC<IncomingFilesProps> = ({ user, notify }) =>
           // 3. Update Status
           await supabase.from('expedientes').update({ status: 'Atendido' }).eq('id', fileToAttend.id);
 
-          const isConstancia = selectedTemplate.category === 'Certificados' || selectedTemplate.name.toLowerCase().includes('constancia');
-
           // 4. Register in Outgoing Files
           if (manualValues['INFORME'] || isConstancia) {
               await supabase.from('expedientes_salida').insert([{
@@ -769,8 +768,8 @@ export const IncomingFiles: React.FC<IncomingFilesProps> = ({ user, notify }) =>
                   doc_number: manualValues['INFORME'] || manualValues['CONSTANCIA'] || `C-${fileToAttend.number}`,
                   ref_number: fileToAttend.number,
                   subject: fileToAttend.subject,
-                  destination: isConstancia ? 'ESTUDIANTE' : undefined,
-                  status: isConstancia ? 'Finalizado' : 'Pendiente',
+                  destination: isConstancia ? 'ESTUDIANTE' : 'COMPUTO',
+                  status: 'Finalizado',
                   pdf_url: urlData.publicUrl,
                   created_by: user.id
               }]);
@@ -789,8 +788,8 @@ export const IncomingFiles: React.FC<IncomingFilesProps> = ({ user, notify }) =>
               }
           }
           
-          // 5. Trigger Download only if requested
-          if (downloadLocal && !signedPdf) {
+          // 5. Trigger Download (Automatic only if it's not a constancia, e.g. it's an Informe or general document)
+          if (!isConstancia && !signedPdf) {
               const url = window.URL.createObjectURL(finalPdfBlob);
               const a = document.createElement('a');
               a.href = url;
@@ -1435,18 +1434,19 @@ export const IncomingFiles: React.FC<IncomingFilesProps> = ({ user, notify }) =>
                                             )}
 
                                             {/* Opcional: Correo del Estudiante (Solo Constancias) */}
-                                            {(selectedTemplate?.category === 'Certificados' || selectedTemplate?.name.toLowerCase().includes('constancia')) && (
+                                            {isConstancia && (
                                                 <div className="flex flex-col gap-4 mt-4 border-t border-slate-100 pt-4">
                                                     <label className="flex flex-col gap-1.5">
-                                                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Correo del Estudiante (Opcional)</span>
+                                                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Correo del Estudiante</span>
                                                         <input 
                                                             type="email"
+                                                            required
                                                             value={studentEmail}
                                                             onChange={e => setStudentEmail(e.target.value)}
                                                             className="h-12 px-4 rounded-xl border border-slate-200 bg-slate-50 font-bold text-sm focus:bg-white focus:border-primary outline-none transition-all"
                                                             placeholder="alumno@email.com"
                                                         />
-                                                        <span className="text-[10px] text-slate-400 ml-1">Si se ingresa, se enviará la constancia automáticamente.</span>
+                                                        <span className="text-[10px] text-slate-400 ml-1">La constancia se generará y se enviará automáticamente de forma directa a este correo.</span>
                                                     </label>
                                                 </div>
                                             )}
@@ -1454,46 +1454,21 @@ export const IncomingFiles: React.FC<IncomingFilesProps> = ({ user, notify }) =>
 
                                         <div className="mt-auto pt-4 border-t border-slate-100 flex flex-col gap-3">
                                             <button 
-                                                onClick={downloadDraftOnly} 
-                                                disabled={isSubmitting}
-                                                className="w-full h-12 bg-white text-primary border-2 border-primary rounded-xl text-xs font-black uppercase hover:bg-slate-50 transition-all flex items-center justify-center gap-2"
-                                            >
-                                                <span className="material-symbols-outlined">print</span>
-                                                DESCARGAR DOCUMENTO (PARA FIRMA)
-                                            </button>
-                                            
-                                            <div className="mt-2 pt-4 border-t border-slate-100 flex flex-col gap-3">
-                                                <label className="flex flex-col gap-1.5">
-                                                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Opcional: Adjuntar PDF firmado</span>
-                                                    <input 
-                                                        type="file" 
-                                                        accept="application/pdf"
-                                                        onChange={(e) => setSignedPdf(e.target.files?.[0] || null)}
-                                                        className="text-xs file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20 cursor-pointer"
-                                                    />
-                                                    <span className="text-[10px] text-slate-400 ml-1">Si adjunta, este archivo reemplazará al autogenerado.</span>
-                                                </label>
-                                            </div>
-
-                                            {!signedPdf && (
-                                                <label className="flex items-center gap-2 cursor-pointer mt-1 ml-1 mb-2">
-                                                    <input 
-                                                        type="checkbox" 
-                                                        checked={downloadLocal} 
-                                                        onChange={(e) => setDownloadLocal(e.target.checked)}
-                                                        className="rounded text-primary focus:ring-primary w-4 h-4 cursor-pointer"
-                                                    />
-                                                    <span className="text-xs font-bold text-slate-700">Descargar copia local autogenerada</span>
-                                                </label>
-                                            )}
-
-                                            <button 
                                                 onClick={finalizeAndDownload} 
-                                                disabled={isSubmitting}
-                                                className="w-full h-14 bg-primary text-white rounded-2xl text-xs font-black uppercase shadow-xl shadow-primary/30 active:scale-95 transition-all flex items-center justify-center gap-2 mt-2"
+                                                disabled={isSubmitting || (isConstancia && !studentEmail.trim())}
+                                                className="w-full h-14 bg-primary text-white rounded-2xl text-xs font-black uppercase shadow-xl shadow-primary/30 active:scale-95 transition-all flex items-center justify-center gap-2 mt-2 disabled:opacity-50"
                                             >
-                                                {isSubmitting ? <span className="material-symbols-outlined animate-spin">progress_activity</span> : <span className="material-symbols-outlined">send</span>}
-                                                {isSubmitting ? 'FINALIZANDO...' : (signedPdf ? 'FINALIZAR Y ENVIAR PDF ADJUNTO' : 'FINALIZAR CON DOCUMENTO AUTOGENERADO')}
+                                                {isSubmitting ? (
+                                                    <span className="material-symbols-outlined animate-spin">progress_activity</span>
+                                                ) : (
+                                                    <span className="material-symbols-outlined">{isConstancia ? 'mail' : 'download'}</span>
+                                                )}
+                                                {isSubmitting 
+                                                    ? 'PROCESANDO...' 
+                                                    : isConstancia 
+                                                        ? 'FINALIZAR Y ENVIAR AL CORREO' 
+                                                        : 'FINALIZAR Y DESCARGAR INFORME'
+                                                }
                                             </button>
                                             <button onClick={() => setAttendStep(3)} className="w-full py-3 text-xs font-black text-slate-400 uppercase tracking-widest hover:text-slate-600 transition-colors">
                                                 ATRÁS
