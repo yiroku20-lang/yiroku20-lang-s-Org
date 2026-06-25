@@ -359,7 +359,62 @@ export const Loans: React.FC<LoansProps> = ({ user, notify }) => {
       
       // Upload signature if exists
       if (hasSignature && canvasRef.current) {
-        const blob = await new Promise<Blob | null>(resolve => canvasRef.current?.toBlob(resolve, 'image/png'));
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext('2d');
+        let blob: Blob | null = null;
+        
+        if (ctx) {
+            try {
+                const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const data = imgData.data;
+                let minX = canvas.width, minY = canvas.height, maxX = 0, maxY = 0;
+                let hasPixels = false;
+                
+                for (let y = 0; y < canvas.height; y++) {
+                    for (let x = 0; x < canvas.width; x++) {
+                        const idx = (y * canvas.width + x) * 4;
+                        if (data[idx + 3] > 0) {
+                            hasPixels = true;
+                            if (x < minX) minX = x;
+                            if (x > maxX) maxX = x;
+                            if (y < minY) minY = y;
+                            if (y > maxY) maxY = y;
+                        }
+                    }
+                }
+                
+                if (hasPixels) {
+                    const padding = 10;
+                    minX = Math.max(0, minX - padding);
+                    minY = Math.max(0, minY - padding);
+                    maxX = Math.min(canvas.width, maxX + padding);
+                    maxY = Math.min(canvas.height, maxY + padding);
+                    
+                    const cropWidth = maxX - minX;
+                    const cropHeight = maxY - minY;
+                    
+                    const cropCanvas = document.createElement('canvas');
+                    cropCanvas.width = cropWidth;
+                    cropCanvas.height = cropHeight;
+                    const cropCtx = cropCanvas.getContext('2d');
+                    
+                    if (cropCtx) {
+                        cropCtx.putImageData(ctx.getImageData(minX, minY, cropWidth, cropHeight), 0, 0);
+                        blob = await new Promise<Blob | null>(resolve => cropCanvas.toBlob(resolve, 'image/png'));
+                    } else {
+                        blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+                    }
+                } else {
+                    blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+                }
+            } catch(e) {
+                console.error('Error cropping signature:', e);
+                blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+            }
+        } else {
+            blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+        }
+
         if (blob) {
           const fileName = `firma_${Date.now()}.png`;
           const { error: uploadError } = await supabase.storage

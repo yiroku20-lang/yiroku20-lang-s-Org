@@ -558,6 +558,25 @@ export const IncomingFiles: React.FC<IncomingFilesProps> = ({ user, notify }) =>
       // Helper to format academic dates if they are in YYYY-MM-DD or similar
       const formatAcademicDate = (dateVal: string | null | undefined) => {
           if (!dateVal) return '';
+          
+          // Check for DD/MM/YYYY format
+          const dtRegex = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
+          const match = dateVal.match(dtRegex);
+          if (match) {
+              const [, day, month, year] = match;
+              const d = new Date(parseInt(year, 10), parseInt(month, 10) - 1, parseInt(day, 10));
+              if (!isNaN(d.getTime())) return formatLongDate(d);
+          }
+
+          // Check for YYYY-MM-DD format explicitly to avoid timezone shifts
+          const dtRegexISO = /^(\d{4})-(\d{1,2})-(\d{1,2})$/;
+          const matchISO = dateVal.match(dtRegexISO);
+          if (matchISO) {
+              const [, year, month, day] = matchISO;
+              const d = new Date(parseInt(year, 10), parseInt(month, 10) - 1, parseInt(day, 10));
+              if (!isNaN(d.getTime())) return formatLongDate(d);
+          }
+
           const d = new Date(dateVal);
           if (isNaN(d.getTime())) return dateVal; // Return as is if not a valid date
           return formatLongDate(d);

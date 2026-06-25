@@ -1093,9 +1093,9 @@ export default function Adjudication() {
         try {
           const insertData = results.data.map((row: any) => ({
             orden_merito: parseInt(row.orden_merito, 10),
-            dni: row.dni,
-            nombre: row.nombre,
-            area: row.area,
+            dni: typeof row.dni === 'string' ? row.dni.trim() : row.dni,
+            nombre: typeof row.nombre === 'string' ? row.nombre.trim() : row.nombre,
+            area: typeof row.area === 'string' ? row.area.trim() : row.area,
             nota: parseFloat(row.nota),
             modalidad: activeProcessName,
           }));
