@@ -21,9 +21,14 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
   const [activeMode, setActiveMode] = useState<SearchMode>('individual');
   
   // Local API configuration (Cloudflare URL)
-  const defaultApiUrl = 'https://night-fan-profiles-sides.trycloudflare.com';
+  const defaultApiUrl = 'https://june-entertainment-thanks-include.trycloudflare.com';
   const [localApiUrl] = useState(() => {
-    return localStorage.getItem('local_api_url') || (import.meta as any).env?.VITE_API_URL || defaultApiUrl;
+    const stored = localStorage.getItem('local_api_url');
+    if (stored && (stored.includes('night-fan-profiles-sides') || (stored.includes('trycloudflare.com') && !stored.includes('june-entertainment-thanks-include')))) {
+       localStorage.setItem('local_api_url', defaultApiUrl);
+       return defaultApiUrl;
+    }
+    return stored || (import.meta as any).env?.VITE_API_URL || defaultApiUrl;
   });
   
   // State for toggling individual folders in local documents
@@ -136,7 +141,10 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
       return fixed;
   };
 
-  const getModalityAndSemesterFromPath = (pathStr: string) => {
+  const getModalityAndSemesterFromPath = (pathStr: string | undefined | null) => {
+      if (!pathStr || typeof pathStr !== 'string') {
+          return 'EXPEDIENTE GENERAL';
+      }
       const segments = pathStr.split(/[\/\\]/).map(s => s.trim()).filter(Boolean);
       let targetFolder = '';
       
@@ -185,18 +193,36 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
 
   const getGroupedDocuments = (docs: any[]) => {
       const groups: { [key: string]: any[] } = {};
+      if (!docs || !Array.isArray(docs)) return groups;
       
       docs.forEach(doc => {
-          const pathStr = typeof doc === 'string' ? doc : doc.path;
-          const filename = typeof doc === 'string' ? doc.split(/[\/\\]/).pop()! : (doc.filename || doc.name || pathStr.split(/[\/\\]/).pop()!);
+          if (!doc) return;
+          // Prefer relativePath since it's the exact clean path inside the H: drive root
+          const rawPath = typeof doc === 'string' ? doc : (doc.relativePath || doc.path || doc.file_path || doc.url || '');
           
-          const groupLabel = getModalityAndSemesterFromPath(pathStr);
+          let cleanPath = rawPath;
+          if (rawPath.includes('?path=')) {
+              try {
+                  const match = rawPath.match(/[?&]path=([^&]+)/);
+                  if (match) {
+                      cleanPath = decodeURIComponent(match[1]);
+                  }
+              } catch (e) {
+                  console.error("Error decoding path parameter:", e);
+              }
+          }
+          
+          const filename = typeof doc === 'string' 
+              ? doc.split(/[\/\\]/).pop()! 
+              : (doc.name || doc.filename || (cleanPath && typeof cleanPath === 'string' ? cleanPath.split(/[\/\\]/).pop() : '') || 'Documento sin nombre');
+          
+          const groupLabel = getModalityAndSemesterFromPath(cleanPath);
           
           if (!groups[groupLabel]) {
               groups[groupLabel] = [];
           }
           groups[groupLabel].push({
-              path: pathStr,
+              path: cleanPath,
               filename,
               originalDoc: doc
           });
@@ -204,27 +230,31 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
 
       Object.keys(groups).forEach(groupLabel => {
           // Sort documents inside this folder alphabetically to guarantee sequential ordering of files (e.g., 1_1_*, 2_1_*, 3_1_*)
-          groups[groupLabel].sort((a, b) => a.filename.localeCompare(b.filename));
+          groups[groupLabel].sort((a, b) => (a.filename || '').localeCompare(b.filename || ''));
           
           let pdfCounter = 1;
           
           groups[groupLabel] = groups[groupLabel].map(doc => {
-              const ext = doc.filename.split('.').pop()?.toUpperCase() || '';
+              const ext = (doc.filename && typeof doc.filename === 'string' ? doc.filename.split('.').pop() : '')?.toUpperCase() || '';
               const isPdf = ext === 'PDF';
               const isImage = ['JPG', 'JPEG', 'PNG', 'WEBP', 'GIF'].includes(ext);
               
               let friendlyName = doc.filename;
               let docTypeLabel = '';
               
+              const description = doc.originalDoc?.description;
+              
               if (isImage) {
-                  friendlyName = 'Foto';
+                  friendlyName = description || 'Foto';
                   docTypeLabel = 'Foto';
               } else if (isPdf) {
-                  friendlyName = `Doc ${pdfCounter}`;
-                  docTypeLabel = `Doc ${pdfCounter}`;
-                  pdfCounter++;
+                  friendlyName = description || `Doc ${pdfCounter}`;
+                  docTypeLabel = description || `Doc ${pdfCounter}`;
+                  if (!description) {
+                      pdfCounter++;
+                  }
               } else {
-                  friendlyName = doc.filename;
+                  friendlyName = description || doc.filename;
                   docTypeLabel = ext;
               }
 
@@ -1106,8 +1136,34 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
                                         </div>
                                     ) : localDocuments.length > 0 ? (
                                         <div className="flex flex-col gap-3">
-                                            {Object.entries(getGroupedDocuments(localDocuments)).map(([folderLabel, docsInFolder], groupIdx) => {
-                                                const isExpanded = !!expandedFolders[folderLabel];
+                                            {Object.entries(getGroupedDocuments(localDocuments))
+                                                .sort(([labelA], [labelB]) => {
+                                                    const yearMatchA = labelA.match(/\b\d{4}\b/);
+                                                    const yearMatchB = labelB.match(/\b\d{4}\b/);
+                                                    const yearA = yearMatchA ? parseInt(yearMatchA[0], 10) : 0;
+                                                    const yearB = yearMatchB ? parseInt(yearMatchB[0], 10) : 0;
+                                                    
+                                                    if (yearA !== yearB) {
+                                                        return yearB - yearA; // Recientes primero
+                                                    }
+                                                    
+                                                    const getSemesterVal = (label: string) => {
+                                                        if (/\b(II|2|SEGUNDO)\b/i.test(label) || label.includes('-II') || label.includes('_II')) return 2;
+                                                        if (/\b(I|1|PRIMERO|PRIMERA)\b/i.test(label) || label.includes('-I') || label.includes('_I')) return 1;
+                                                        return 0;
+                                                    };
+                                                    
+                                                    const semA = getSemesterVal(labelA);
+                                                    const semB = getSemesterVal(labelB);
+                                                    
+                                                    if (semA !== semB) {
+                                                        return semB - semA; // II antes que I
+                                                    }
+                                                    
+                                                    return labelA.localeCompare(labelB);
+                                                })
+                                                .map(([folderLabel, docsInFolder], groupIdx) => {
+                                                    const isExpanded = !!expandedFolders[folderLabel];
                                                 return (
                                                     <div key={groupIdx} className="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-sm">
                                                         {/* Folder Header */}

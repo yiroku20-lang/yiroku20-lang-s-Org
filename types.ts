@@ -98,6 +98,12 @@ export interface IncomingFile {
   dateTime: string;
   type: 'General' | 'Especial';
   status: 'Pendiente' | 'En Progreso' | 'Atendido' | 'Archivado' | 'Derivado' | 'Devuelto';
+  assigned_to?: string | null;
+  assigned_at?: string | null;
+  assigned_by?: string | null;
+  assignment_notes?: string | null;
+  assignment_type?: 'action' | 'info' | null;
+  assignment_status?: 'pending' | 'completed' | null;
 }
 
 export interface OutgoingFile {

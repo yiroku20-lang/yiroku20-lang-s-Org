@@ -36,7 +36,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, isOpen, onClos
   const location = useLocation();
   const navigate = useNavigate();
 
-  const filteredNavItems = navItems.filter(item => {
+  let filteredNavItems = navItems.filter(item => {
     // 1. Si es Operador y la pestaña tiene un permiso específico configurado
     if (user.role === 'Operador' && item.permission) {
       return user.permissions?.includes(item.permission);
@@ -49,6 +49,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, isOpen, onClos
     
     return true;
   });
+
+  // Si es un operador sin permiso general de expedientes, añadimos "Mis Expedientes"
+  if (user.role === 'Operador' && !user.permissions?.includes('view_expedientes')) {
+    filteredNavItems = [
+      ...filteredNavItems.slice(0, 1), // Después de "Panel Principal"
+      { label: 'Mis Expedientes', icon: 'assignment', path: '/incoming?filter=Asignados%20a%20M%C3%AD' },
+      ...filteredNavItems.slice(1)
+    ];
+  }
 
   return (
     <>
