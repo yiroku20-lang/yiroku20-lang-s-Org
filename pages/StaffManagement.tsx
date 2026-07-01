@@ -480,6 +480,18 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({ user, notify }
           const { error } = await supabase.from('personal_sorteos').update(updateData).eq('id', sorteoId);
           if (error) throw error;
           
+          const s = sorteos.find(x => x.id === sorteoId);
+          if (s) {
+              const auditDesc = newState === 'Confirmado' 
+                 ? `Confirmó manualmente la participación de ${s.nombres} para el cargo de ${s.cargo}`
+                 : `Rechazó manualmente la participación de ${s.nombres} para el cargo de ${s.cargo} (Motivo: ${motivo})`;
+              await supabase.from('tramite_seguimiento').insert([{
+                  action_type: 'Estado',
+                  description: auditDesc,
+                  user_name: user?.name || 'Sistema'
+              }]);
+          }
+          
           fetchSorteos(selectedSorteoProceso, true); // silent reload in background
       } catch(err: any) {
           notify(err.message, 'error');
