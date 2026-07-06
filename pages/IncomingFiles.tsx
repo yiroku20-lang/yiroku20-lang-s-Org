@@ -487,7 +487,7 @@ export const IncomingFiles: React.FC<IncomingFilesProps> = ({ user, notify }) =>
                 </div>
 
                 <div style="text-align: center; margin: 24px 0 0 0;">
-                  <a href="${window.location.origin}/incoming?filter=Asignados%20a%20M%C3%AD" target="_blank" style="background-color: #0f172a; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-size: 12px; font-weight: bold; display: inline-block; box-shadow: 0 4px 6px rgba(15,23,42,0.15);">Revisar en Consola de Admisión</a>
+                  <a href="${window.location.origin.includes('localhost') && import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL : window.location.origin}/incoming?filter=Asignados%20a%20M%C3%AD" target="_blank" style="background-color: #0f172a; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-size: 12px; font-weight: bold; display: inline-block; box-shadow: 0 4px 6px rgba(15,23,42,0.15);">Revisar en Consola de Admisión</a>
                 </div>
                 
                 <hr style="border: 0; border-top: 1px solid #f1f5f9; margin: 28px 0 20px 0;" />

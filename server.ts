@@ -468,7 +468,13 @@ async function startServer() {
         html,
       };
 
-      if (attachmentBase64) {
+      if (req.body.attachments && Array.isArray(req.body.attachments)) {
+        mailOptions.attachments = req.body.attachments.map((att: any) => ({
+            filename: att.filename,
+            content: att.content.includes("base64,") ? att.content.split("base64,")[1] : att.content,
+            encoding: "base64",
+        }));
+      } else if (attachmentBase64) {
         mailOptions.attachments = [
           {
             filename: filename || "documento.pdf",
