@@ -887,6 +887,39 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
     }));
   }, [normalizedCsvData]);
 
+  const groupedRankingData = useMemo(() => {
+    const groups: Record<string, typeof rankingData> = {};
+    rankingData.forEach(item => {
+      let areaKey = 'Sin Grupo';
+      if (item.area) {
+        const clean = item.area.replace(/^(á|a)rea\s+/i, '').replace(/^grupo\s+/i, '').trim().toUpperCase();
+        if (clean) {
+          areaKey = clean;
+        }
+      }
+      if (!groups[areaKey]) {
+        groups[areaKey] = [];
+      }
+      groups[areaKey].push(item);
+    });
+
+    const sortedGroupKeys = Object.keys(groups).sort((a, b) => {
+      const predefined = ['A', 'B', 'C', 'D'];
+      const idxA = predefined.indexOf(a);
+      const idxB = predefined.indexOf(b);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.localeCompare(b);
+    });
+
+    return sortedGroupKeys.map(key => ({
+      key,
+      title: ['A', 'B', 'C', 'D'].includes(key) ? `Área ${key}` : key === 'Sin Grupo' ? 'Sin Área' : `Grupo ${key}`,
+      items: groups[key]
+    }));
+  }, [rankingData]);
+
   // --- Calculations for Lista ---
   const filteredList = useMemo(() => {
     const term = listSearchTerm.toLowerCase().trim();
@@ -2040,17 +2073,30 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
                       </tr>
                     </thead>
                     <tbody className="text-sm divide-y divide-slate-100">
-                      {rankingData.length === 0 ? (
+                      {groupedRankingData.length === 0 || rankingData.length === 0 ? (
                          <tr><td colSpan={5} className="text-center p-8 text-slate-400">No hay postulantes en este ranking.</td></tr>
                       ) : (
-                        rankingData.map((row, idx) => (
-                          <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                            <td className="p-4 text-center font-black text-slate-400">#{row.orden_merito}</td>
-                            <td className="p-4 font-mono text-slate-600">{row.dni}</td>
-                            <td className="p-4 font-bold text-slate-800">{row.nombre}</td>
-                            <td className="p-4 text-center font-bold text-slate-600">{row.area}</td>
-                            <td className="p-4 text-center font-black text-primary">{row.nota}</td>
-                          </tr>
+                        groupedRankingData.map((group) => (
+                          <React.Fragment key={group.key}>
+                            {/* Academic Group Header */}
+                            <tr className="bg-slate-50/80 border-y border-slate-100">
+                              <td colSpan={5} className="px-4 py-2 bg-slate-100/60 text-[10px] font-black text-slate-600 uppercase tracking-widest">
+                                {group.title} ({group.items.length} {group.items.length === 1 ? 'postulante' : 'postulantes'})
+                              </td>
+                            </tr>
+                            {group.items.map((row, idx) => (
+                              <tr key={`${group.key}-${idx}`} className="hover:bg-slate-50 transition-colors">
+                                <td className="p-4 text-center font-black text-slate-400">
+                                  #{idx + 1}
+                                  <span className="text-[10px] font-normal text-slate-400 block">(Global: #{row.orden_merito})</span>
+                                </td>
+                                <td className="p-4 font-mono text-slate-600">{row.dni}</td>
+                                <td className="p-4 font-bold text-slate-800">{row.nombre}</td>
+                                <td className="p-4 text-center font-bold text-slate-600">{row.area}</td>
+                                <td className="p-4 text-center font-black text-primary">{row.nota}</td>
+                              </tr>
+                            ))}
+                          </React.Fragment>
                         ))
                       )}
                     </tbody>
