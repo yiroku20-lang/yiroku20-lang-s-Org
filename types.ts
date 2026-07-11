@@ -146,6 +146,8 @@ export interface CVCuadroAnual {
   resolucion_id?: string;
   recepcion_abierta?: boolean;
   created_at: string;
+  resolution_number?: string | null;
+  resolution_pdf?: string | null;
 }
 
 export interface CVModalidad {
@@ -187,9 +189,9 @@ export interface Resolution {
   number: string;
   date: string;
   subject: string;
-  subtitle: string;
-  tag: string;
-  tagColor: string;
+  subtitle?: string;
+  tag?: string;
+  tagColor?: string;
   pdfUrl?: string;
   parentId?: string; 
   children?: Resolution[]; 
@@ -431,4 +433,50 @@ export interface PersonalSorteo {
   motivo_rechazo?: string;
   fecha_limite_confirmacion?: string;
   created_at: string;
+}
+
+export interface PreRevisionArchivo {
+  id?: string;
+  modalidad_id: string;
+  csv_data: any[];
+  created_at?: string;
+}
+
+export interface BudgetRole {
+  id: string;
+  rubro: string;
+  category: string;
+  subcategory: string;
+  role: string;
+  condition: string;
+  indicator: number;
+  quantity: number;
+  unit_cost: number;
+  total: number;
+}
+
+export interface ExamBudgetRecord {
+  id: string;
+  cuadro_anual_id: string;
+  modalidad_id: string;
+  items: BudgetRole[];
+  total_general: number;
+  schedules?: RoleSchedule[];
+  general_schedule?: any[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScheduleEvent {
+  id: string;
+  time: string;
+  activity: string;
+  location: string;
+  date?: string;
+}
+
+export interface RoleSchedule {
+  id: string;
+  roleName: string; // e.g., "Director General de Admisión"
+  events: ScheduleEvent[];
 }

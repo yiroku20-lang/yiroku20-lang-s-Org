@@ -27,6 +27,8 @@ const navItems: (NavItem & { permission?: string })[] = [
   { label: 'Agenda de Eventos', icon: 'calendar_today', path: '/calendar', permission: 'view_agenda' },
   { label: 'Control Asistencia', icon: 'fingerprint', path: '/attendance', permission: 'view_asistencia' },
   { label: 'Adjudicaciones', icon: 'stars', path: '/adjudication', roles: ['Administrador', 'Director'], permission: 'view_adjudicaciones' },
+  { label: 'Pre-revisión Postulantes', icon: 'plagiarism', path: '/pre-review', roles: ['Administrador', 'Operador', 'Director'] },
+  { label: 'Presupuesto Examen', icon: 'request_quote', path: '/budget', roles: ['Administrador', 'Director'], permission: 'view_presupuesto' },
   { label: 'Auditoría y Logs', icon: 'bar_chart', path: '/logs', roles: ['Administrador'], permission: 'view_auditoria' },
   { label: 'Limpieza de Datos', icon: 'cleaning_services', path: '/data-cleanup', roles: ['Administrador'] },
   { label: 'Gestión de Personal', icon: 'badge', path: '/staff', roles: ['Administrador', 'Director'], permission: 'view_personal' },
@@ -69,7 +71,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, isOpen, onClos
         />
       )}
       
-      <aside className={`fixed md:static inset-y-0 left-0 flex h-full w-72 flex-col border-r border-slate-200 bg-white shadow-2xl z-50 transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
+      <aside className={`fixed md:static inset-y-0 left-0 flex h-full w-72 flex-col border-r border-slate-200 bg-white shadow-2xl z-50 transition-transform duration-300 ease-in-out print:hidden ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
         <div className="flex flex-col h-full justify-between p-6">
           <div className="flex flex-col gap-8">
             <div className="flex gap-4 items-center justify-between">

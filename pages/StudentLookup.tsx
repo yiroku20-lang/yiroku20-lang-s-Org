@@ -522,7 +522,7 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
           const found = statusMap[res.status];
           let detail = '';
           if (res.allMatches.length === 1) {
-              detail = `${res.allMatches[0].ESCUELA} - ${res.allMatches[0].SEMESTRE_INGRESO || res.allMatches[0].PERIODO_INGRESO || 'N/A'} - MODALIDAD: ${res.allMatches[0].MODALIDAD_INGRESO || 'N/A'}`;
+              detail = `${res.allMatches[0].CARRERA} - ${res.allMatches[0].SEMESTRE || res.allMatches[0].ANIO || 'N/A'} - MODALIDAD: ${res.allMatches[0].MODALIDAD || 'N/A'}`;
           } else if (res.allMatches.length > 1) {
               detail = `Múltiples ingresos (${res.allMatches.length})`;
           }
@@ -563,7 +563,7 @@ export const StudentLookup: React.FC<{ user: User }> = ({ user }) => {
       const tableData = batchResults.map(res => {
           let detail = '';
           if (res.allMatches.length === 1) {
-              detail = `${res.allMatches[0].ESCUELA}\n${res.allMatches[0].SEMESTRE_INGRESO || res.allMatches[0].PERIODO_INGRESO || 'N/A'}`;
+              detail = `${res.allMatches[0].CARRERA}\n${res.allMatches[0].SEMESTRE || res.allMatches[0].ANIO || 'N/A'}`;
           } else if (res.allMatches.length > 1) {
               detail = `Múltiples ingresos (${res.allMatches.length})`;
           }

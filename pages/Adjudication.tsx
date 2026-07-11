@@ -1826,7 +1826,7 @@ ALTER TABLE adjudicacion_ranking DISABLE ROW LEVEL SECURITY;
             </pre>
             <div className="mt-6 flex justify-end gap-4">
               <button
-                onClick={fetchData}
+                onClick={() => fetchData()}
                 className="px-6 py-3 bg-slate-100 text-slate-700 rounded-xl font-black text-sm hover:bg-slate-200 transition-colors"
                 title="Reintentar Carga"
               >
