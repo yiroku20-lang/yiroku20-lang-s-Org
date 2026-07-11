@@ -100,21 +100,32 @@ const normalizeText = (str: string) => {
   return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 };
 
+const schoolCache = new Map<string, any>();
 const findSchool = (val: string, escuelas: any[]) => {
   if (!val) return null;
+  const cacheKey = `${val}_${escuelas.length}`;
+  if (schoolCache.has(cacheKey)) {
+    return schoolCache.get(cacheKey);
+  }
   const cleanVal = normalizeText(val);
-
   let school = escuelas.find(e => e.codigo_carrera === val || normalizeText(e.codigo_carrera) === cleanVal);
-  if (school) return school;
-
+  if (school) {
+    schoolCache.set(cacheKey, school);
+    return school;
+  }
   school = escuelas.find(e => normalizeText(e.nombre) === cleanVal);
-  if (school) return school;
-
+  if (school) {
+    schoolCache.set(cacheKey, school);
+    return school;
+  }
   school = escuelas.find(e => {
     const eName = normalizeText(e.nombre);
     return eName.includes(cleanVal) || cleanVal.includes(eName);
   });
-  if (school) return school;
+  if (school) {
+    schoolCache.set(cacheKey, school);
+    return school;
+  }
   
   const words = cleanVal.split(/\s+/).filter(w => w.length > 3 && w !== 'ingenieria' && w !== 'educacion' && w !== 'ciencias');
   if (words.length > 0) {
@@ -122,9 +133,12 @@ const findSchool = (val: string, escuelas: any[]) => {
       const eName = normalizeText(e.nombre);
       return words.every(w => eName.includes(w));
     });
-    if (school) return school;
+    if (school) {
+      schoolCache.set(cacheKey, school);
+      return school;
+    }
   }
-
+  schoolCache.set(cacheKey, null);
   return null;
 };
 
@@ -222,12 +236,10 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
     const fetchData = async () => {
       setIsLoadingConfig(true);
       try {
-        const [cuadrosRes, escuelasRes, vacantesRes, modalidadesRes, adjudicacionVacantesRes, statusRes] = await Promise.all([
+        const [cuadrosRes, escuelasRes, modalidadesRes, statusRes] = await Promise.all([
           supabase.from('cv_cuadros_anuales').select('*').order('created_at', { ascending: false }),
           supabase.from('cv_escuelas').select('*'),
-          supabase.from('cv_vacantes').select('*'),
           supabase.from('cv_modalidades').select('*'),
-          supabase.from('adjudicacion_vacantes').select('*'),
           fetch('/api/get-pre-revisions-status').then(r => r.ok ? r.json() : { success: false, savedModalidadIds: [] }).catch(() => ({ success: false, savedModalidadIds: [] }))
         ]);
 
@@ -243,19 +255,6 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
           notify?.(`Error al cargar escuelas: ${escuelasRes.error.message}`, 'error');
         } else if (escuelasRes.data) {
           setEscuelas(escuelasRes.data);
-        }
-
-        if (vacantesRes.error) {
-          console.error("Error fetching vacantes:", vacantesRes.error);
-          notify?.(`Error al cargar vacantes: ${vacantesRes.error.message}`, 'error');
-        } else if (vacantesRes.data) {
-          setVacantes(vacantesRes.data);
-        }
-
-        if (adjudicacionVacantesRes.error) {
-          console.error("Error fetching adjudicacion_vacantes:", adjudicacionVacantesRes.error);
-        } else if (adjudicacionVacantesRes.data) {
-          setAdjudicacionVacantes(adjudicacionVacantesRes.data);
         }
 
         if (modalidadesRes.error) {
@@ -312,6 +311,41 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
       clearData();
     }
   }, [selectedModalidad]);
+
+  const fetchVacantesForModality = async (modId: string) => {
+    try {
+      // Buscar modalidades homólogas (mismo nombre y cuadro) para mantener el soporte de fallback
+      const currentMod = allModalidades.find(m => m.id === modId) || modalidades.find(m => m.id === modId);
+      let targetModIds = [modId];
+      if (currentMod) {
+        const peerModIds = allModalidades
+          .filter(m => m.nombre === currentMod.nombre && m.cuadro_id === currentMod.cuadro_id)
+          .map(m => m.id);
+        targetModIds = Array.from(new Set([...targetModIds, ...peerModIds]));
+      }
+      // Consultamos únicamente las vacantes asociadas a esta modalidad y sus pares
+      const { data, error } = await supabase
+        .from('cv_vacantes')
+        .select('*')
+        .in('modalidad_id', targetModIds);
+      if (error) {
+        console.error("Error fetching vacantes for modality:", error);
+        notify?.(`Error al cargar vacantes: ${error.message}`, 'error');
+      } else if (data) {
+        setVacantes(data);
+      }
+    } catch (err: any) {
+      console.error("Error in fetchVacantesForModality:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedModalidad) {
+      fetchVacantesForModality(selectedModalidad);
+    } else {
+      setVacantes([]);
+    }
+  }, [selectedModalidad, allModalidades, modalidades]);
 
   const checkPreRevision = async (modId: string) => {
     setIsFetchingPreRevision(true);
@@ -829,21 +863,28 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
 
   // --- Calculations for Ranking ---
   const rankingData = useMemo(() => {
-    return normalizedCsvData
-      .filter(row => row && row.OBSERVACION !== 'INGRESANTE' && !isNaN(parseFloat(row.Nota)) && parseFloat(row.Nota) >= 9)
-      .sort((a, b) => {
-        const notaA = parseFloat(a?.Nota) || 0;
-        const notaB = parseFloat(b?.Nota) || 0;
-        if (notaA !== notaB) return notaB - notaA;
-        return (a?.nombre || '').localeCompare(b?.nombre || '');
+    const filtered = normalizedCsvData
+      .filter(row => {
+        if (!row) return false;
+        if (row.OBSERVACION === 'INGRESANTE') return false;
+        const n = parseFloat(row.Nota);
+        return !isNaN(n) && n >= 9;
       })
-      .map((row, idx) => ({
-        orden_merito: idx + 1,
-        dni: row.NroDocumento || '',
-        nombre: row.nombre || '',
-        area: row.grupo || '',
-        nota: row.Nota || ''
+      .map(row => ({
+        row,
+        parsedNota: parseFloat(row.Nota) || 0
       }));
+    filtered.sort((a, b) => {
+      if (b.parsedNota !== a.parsedNota) return b.parsedNota - a.parsedNota;
+      return (a.row.nombre || '').localeCompare(b.row.nombre || '');
+    });
+    return filtered.map((item, idx) => ({
+      orden_merito: idx + 1,
+      dni: item.row.NroDocumento || '',
+      nombre: item.row.nombre || '',
+      area: item.row.grupo || '',
+      nota: item.row.Nota || ''
+    }));
   }, [normalizedCsvData]);
 
   // --- Calculations for Lista ---
@@ -1724,14 +1765,14 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
                     <div>
                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Vacantes Oferta</p>
                       <p className="text-2xl font-black text-slate-800 tracking-tight">
-                        {Object.values(vacanciesBySchool).reduce((a,b) => a+b, 0)}
+                        {(Object.values(vacanciesBySchool) as number[]).reduce((a,b) => a+b, 0)}
                       </p>
                       <p className="text-[10px] text-slate-400 mt-0.5">Disponibles en el cuadro</p>
                     </div>
                   </div>
                   <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200/80 flex items-center gap-4 relative overflow-hidden">
                     {(() => {
-                      const totalVac = Object.values(vacanciesBySchool).reduce((a,b) => a+b, 0);
+                      const totalVac = (Object.values(vacanciesBySchool) as number[]).reduce((a,b) => a+b, 0);
                       const totalAdm = normalizedCsvData.filter(r => r.OBSERVACION === 'INGRESANTE').length;
                       const diff = totalVac - totalAdm;
                       const isNegative = diff < 0;
@@ -2461,49 +2502,52 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
                             </td>
                           </tr>
                         ) : (
-                          Object.entries(groupedSchoolsApplicantsData).map(([area, items]) => (
-                            <React.Fragment key={area}>
-                              {/* Subcabecera elegante del Área Académica */}
-                              <tr className="bg-slate-50/80 border-y border-slate-100">
-                                <td colSpan={7} className="px-4 py-2 bg-slate-100/60 text-[10px] font-black text-slate-600 uppercase tracking-widest">
-                                  {area} ({items.length} {items.length === 1 ? 'carrera' : 'carreras'})
-                                </td>
-                              </tr>
-                              {items.map((item, idx) => {
-                                const ratioCompetencia = item.ratio;
-                                const tasaIngreso = item.total > 0 ? ((item.admitted / item.total) * 100).toFixed(1) : '0.0';
-                                return (
-                                  <tr key={`${area}-${idx}`} className="hover:bg-slate-50/50 transition-colors">
-                                    <td className="p-4 font-bold text-slate-800">
-                                      {item.name}
-                                      <span className="block text-[10px] text-slate-400 font-mono font-normal mt-0.5">{item.code}</span>
-                                    </td>
-                                    <td className="p-4 text-center font-bold text-slate-500">{item.area}</td>
-                                    <td className="p-4 text-center font-black text-slate-700">{item.vacancies}</td>
-                                    <td className="p-4 text-center font-black text-blue-600">{item.total}</td>
-                                    <td className="p-4 text-center font-black text-emerald-600">{item.admitted}</td>
-                                    <td className="p-4 text-center">
-                                      <span className={`inline-block font-black text-xs px-2 py-0.5 rounded ${
-                                        ratioCompetencia !== '—' && parseFloat(ratioCompetencia) > 8 ? 'bg-rose-50 text-rose-600' :
-                                        ratioCompetencia !== '—' && parseFloat(ratioCompetencia) > 3 ? 'bg-amber-50 text-amber-600' :
-                                        'bg-slate-50 text-slate-600'
-                                      }`}>
-                                        {ratioCompetencia === '—' ? '—' : `${ratioCompetencia} post/vac`}
-                                      </span>
-                                    </td>
-                                    <td className="p-4 text-center">
-                                      <div className="flex items-center gap-2 justify-center">
-                                        <div className="w-12 bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                                          <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${Math.min(parseFloat(tasaIngreso), 100)}%` }}></div>
+                          Object.entries(groupedSchoolsApplicantsData).map(([area, items]) => {
+                            const schoolItems = items as any[];
+                            return (
+                              <React.Fragment key={area}>
+                                {/* Subcabecera elegante del Área Académica */}
+                                <tr className="bg-slate-50/80 border-y border-slate-100">
+                                  <td colSpan={7} className="px-4 py-2 bg-slate-100/60 text-[10px] font-black text-slate-600 uppercase tracking-widest">
+                                    {area} ({schoolItems.length} {schoolItems.length === 1 ? 'carrera' : 'carreras'})
+                                  </td>
+                                </tr>
+                                {schoolItems.map((item, idx) => {
+                                  const ratioCompetencia = item.ratio;
+                                  const tasaIngreso = item.total > 0 ? ((item.admitted / item.total) * 100).toFixed(1) : '0.0';
+                                  return (
+                                    <tr key={`${area}-${idx}`} className="hover:bg-slate-50/50 transition-colors">
+                                      <td className="p-4 font-bold text-slate-800">
+                                        {item.name}
+                                        <span className="block text-[10px] text-slate-400 font-mono font-normal mt-0.5">{item.code}</span>
+                                      </td>
+                                      <td className="p-4 text-center font-bold text-slate-500">{item.area}</td>
+                                      <td className="p-4 text-center font-black text-slate-700">{item.vacancies}</td>
+                                      <td className="p-4 text-center font-black text-blue-600">{item.total}</td>
+                                      <td className="p-4 text-center font-black text-emerald-600">{item.admitted}</td>
+                                      <td className="p-4 text-center">
+                                        <span className={`inline-block font-black text-xs px-2 py-0.5 rounded ${
+                                          ratioCompetencia !== '—' && parseFloat(ratioCompetencia) > 8 ? 'bg-rose-50 text-rose-600' :
+                                          ratioCompetencia !== '—' && parseFloat(ratioCompetencia) > 3 ? 'bg-amber-50 text-amber-600' :
+                                          'bg-slate-50 text-slate-600'
+                                        }`}>
+                                          {ratioCompetencia === '—' ? '—' : `${ratioCompetencia} post/vac`}
+                                        </span>
+                                      </td>
+                                      <td className="p-4 text-center">
+                                        <div className="flex items-center gap-2 justify-center">
+                                          <div className="w-12 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                                            <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${Math.min(parseFloat(tasaIngreso), 100)}%` }}></div>
+                                          </div>
+                                          <span className="text-xs font-bold text-slate-600">{tasaIngreso}%</span>
                                         </div>
-                                        <span className="text-xs font-bold text-slate-600">{tasaIngreso}%</span>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </React.Fragment>
-                          ))
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </React.Fragment>
+                            );
+                          })
                         )}
                       </tbody>
                     </table>
