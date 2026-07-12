@@ -195,7 +195,7 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
 
   const [selectedCuadro, setSelectedCuadro] = useState(() => safeStorage.getItem('pre_rev_selectedCuadro') || '');
   const [selectedSemestre, setSelectedSemestre] = useState(() => safeStorage.getItem('pre_rev_selectedSemestre') || '');
-  const [selectedModalidad, setSelectedModalidad] = useState(() => safeStorage.getItem('pre_rev_selectedModalidad') || '');
+  const [selectedModalidad, setSelectedModalidad] = useState('');
   
   const [csvData, setCsvData] = useState<any[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -483,6 +483,12 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
     if (fileInputRef.current) fileInputRef.current.value = '';
     setActiveTab('Cobertura');
   };
+
+  const currentModalityName = useMemo(() => {
+    if (!selectedModalidad) return '';
+    const m = allModalidades.find(mod => mod.id === selectedModalidad) || modalidades.find(mod => mod.id === selectedModalidad);
+    return m ? m.nombre : '';
+  }, [selectedModalidad, allModalidades, modalidades]);
 
   // --- Geographic Code Auto-Detection (INEI vs RENIEC) ---
   const usesInei = useMemo(() => {
@@ -1565,7 +1571,25 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
         </div>
       )}
       <div className="p-6 border-b border-slate-200 bg-white">
-        <h1 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Pre-revisión de Ingresantes</h1>
+        {isLoaded && (
+          <div className="mb-4">
+            <button
+              onClick={() => {
+                setSelectedModalidad('');
+                clearData();
+              }}
+              className="flex items-center gap-2 text-slate-500 hover:text-slate-900 font-bold text-sm transition-colors"
+            >
+              <span className="material-symbols-outlined text-[18px]">
+                arrow_back
+              </span>
+              Volver a la lista
+            </button>
+          </div>
+        )}
+        <h1 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">
+          {isLoaded && currentModalityName ? `PRE-REVISIÓN: ${currentModalityName}` : 'Pre-revisión de Ingresantes'}
+        </h1>
         <p className="text-slate-500 text-sm mt-1">Valide la cobertura de vacantes y cargue resultados antes de su migración oficial.</p>
       </div>
 
