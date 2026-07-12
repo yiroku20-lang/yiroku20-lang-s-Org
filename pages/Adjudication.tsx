@@ -88,6 +88,7 @@ export default function Adjudication() {
   const [showCsvModal, setShowCsvModal] = useState(false);
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [csvLoading, setCsvLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [csvMessage, setCsvMessage] = useState<{
     text: string;
     type: "success" | "error";
@@ -791,9 +792,7 @@ export default function Adjudication() {
         .from("adjudicacion_vacantes")
         .select("*")
         .eq("modalidad", activeProcessName);
-
       if (vErr) throw vErr;
-
       // 2. Fetch all adjudicated applicants
       let finalRanking: any[] = [];
       const res = await supabase
@@ -814,24 +813,22 @@ export default function Adjudication() {
       } else {
         finalRanking = res.data || [];
       }
-
       // Filter area "_" vacancies if any
       const vacanciesList = (allVacancies || []).filter((v) => v.area !== "_");
-
       // Sort vacancies by Area then by Escuela name
       vacanciesList.sort((a, b) => {
         if (a.area !== b.area) return a.area.localeCompare(b.area);
         return a.escuela.localeCompare(b.escuela);
       });
-
       const doc = new jsPDF();
       const pageWidth = doc.internal.pageSize.getWidth();
-
-      // Official UNSAAC styling: Red (#800000) and Gold (#FFC107) branding
+      // Official UNSAAC styling: Red (#800000) and Gold (#D4AF37) branding
       // Title Block
       doc.setFillColor(128, 0, 0); // Crimson Red
       doc.rect(0, 0, pageWidth, 42, "F");
-
+      // Elegant gold divider line under the banner
+      doc.setFillColor(212, 175, 55); // Metallic Gold (#D4AF37)
+      doc.rect(0, 42, pageWidth, 2.5, "F");
       // Title text helper
       doc.setTextColor(255, 255, 255);
       doc.setFont("Helvetica", "bold");
@@ -841,31 +838,25 @@ export default function Adjudication() {
       doc.setTextColor(255, 193, 7); // Gold
       doc.setFontSize(11);
       doc.text("DIRECCIÓN DE ADMISIÓN - REPORTE OFICIAL DE ADJUDICACIÓN", pageWidth / 2, 26, { align: "center" });
-
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(9);
       doc.text(`PROCESO: ${activeProcessName}`, pageWidth / 2, 35, { align: "center" });
-
       // Spacing and Report Summary Metadata
-      doc.setTextColor(51, 65, 85);
-      doc.setFontSize(14);
+      doc.setTextColor(30, 41, 59); // Deep Slate
+      doc.setFontSize(12);
       doc.setFont("Helvetica", "bold");
-      doc.text("I. CUADRO RESUMEN DE VACANTES DE ADJUDICACIÓN", 14, 52);
-
+      doc.text("I. CUADRO RESUMEN DE VACANTES DE ADJUDICACIÓN", 14, 54);
       let totalOfertadas = 0;
       let totalCubiertas = 0;
       let totalSobrantes = 0;
-
       const vacanciesTableBody = vacanciesList.map((v) => {
         const cubiertas = finalRanking.filter(
           (r) => r.escuela_adjudicada?.toUpperCase() === v.escuela?.toUpperCase()
         ).length;
         const sobrantes = Math.max(0, v.vacantes_totales - cubiertas);
-
         totalOfertadas += v.vacantes_totales;
         totalCubiertas += cubiertas;
         totalSobrantes += sobrantes;
-
         return [
           v.area,
           v.escuela,
@@ -874,7 +865,6 @@ export default function Adjudication() {
           sobrantes
         ];
       });
-
       // Add a Totals Row
       vacanciesTableBody.push([
         "",
@@ -883,10 +873,9 @@ export default function Adjudication() {
         totalCubiertas,
         totalSobrantes
       ]);
-
-      // Generate Table 1 - Vacancies
+      // Generate Table 1 - Vacancies (Width: 15 + 86 + 27 + 27 + 27 = 182mm)
       autoTable(doc, {
-        startY: 56,
+        startY: 58,
         head: [["ÁREA", "ESCUELA PROFESIONAL", "OFERTADAS", "CUBIERTAS", "SOBRANTES"]],
         body: vacanciesTableBody,
         theme: "striped",
@@ -894,14 +883,19 @@ export default function Adjudication() {
           fillColor: [128, 0, 0],
           textColor: [255, 255, 255],
           fontStyle: "bold",
-          fontSize: 9
+          fontSize: 8.5,
+          halign: "center"
         },
         columnStyles: {
           0: { cellWidth: 15, halign: "center" },
-          1: { cellWidth: 105 },
-          2: { halign: "center" },
-          3: { halign: "center" },
-          4: { halign: "center" }
+          1: { cellWidth: 86, halign: "left" },
+          2: { cellWidth: 27, halign: "center" },
+          3: { cellWidth: 27, halign: "center" },
+          4: { cellWidth: 27, halign: "center" }
+        },
+        styles: {
+          fontSize: 8.5,
+          cellPadding: 3
         },
         footStyles: {
           fillColor: [241, 245, 249],
@@ -916,22 +910,18 @@ export default function Adjudication() {
           }
         }
       });
-
       // Section 2: Relación de Adjudicados
       // Starting from where the table ends
       let nextY = (doc as any).lastAutoTable.finalY + 15;
-
       // Add new page if not enough space
       if (nextY > doc.internal.pageSize.getHeight() - 40) {
         doc.addPage();
         nextY = 20;
       }
-
-      doc.setTextColor(51, 65, 85);
-      doc.setFontSize(14);
+      doc.setTextColor(30, 41, 59);
+      doc.setFontSize(12);
       doc.setFont("Helvetica", "bold");
       doc.text("II. RELACIÓN DE POSTULANTES ADJUDICADOS", 14, nextY);
-
       const rankingTableBody = finalRanking.map((r, idx) => [
         idx + 1,
         r.orden_merito,
@@ -941,9 +931,8 @@ export default function Adjudication() {
         r.area,
         r.escuela_adjudicada || ""
       ]);
-
       autoTable(doc, {
-        startY: nextY + 4,
+        startY: nextY + 5,
         head: [["Nº", "MÉRITO", "DNI", "APELLIDOS Y NOMBRES", "PUNTAJE", "ÁREA", "CARRERA ADJUDICADA"]],
         body: rankingTableBody,
         theme: "striped",
@@ -951,22 +940,23 @@ export default function Adjudication() {
           fillColor: [30, 41, 59], // Slate Gray
           textColor: [255, 255, 255],
           fontStyle: "bold",
-          fontSize: 8
+          fontSize: 8.5,
+          halign: "center"
         },
         columnStyles: {
           0: { cellWidth: 10, halign: "center" },
           1: { cellWidth: 15, halign: "center" },
-          2: { cellWidth: 20, halign: "center" },
-          3: { cellWidth: 65 },
+          2: { cellWidth: 22, halign: "center" },
+          3: { cellWidth: 62, halign: "left" },
           4: { cellWidth: 18, halign: "center" },
           5: { cellWidth: 12, halign: "center" },
-          6: { cellWidth: 42 }
+          6: { cellWidth: 43, halign: "left" }
         },
         styles: {
-          fontSize: 8
+          fontSize: 8,
+          cellPadding: 2.5
         }
       });
-
       // Add footer callback for page numbers
       const totalPages = (doc as any).internal.getNumberOfPages();
       for (let i = 1; i <= totalPages; i++) {
@@ -981,7 +971,6 @@ export default function Adjudication() {
           { align: "center" }
         );
       }
-
       doc.save(`Reporte_Oficial_Adjudicados_${activeProcessName.replace(/[^a-zA-Z0-9-]/g, "_")}.pdf`);
     } catch (err: any) {
       alert("Error al generar PDF: " + err.message);
@@ -1388,6 +1377,240 @@ export default function Adjudication() {
     }
   };
 
+  const handleApproveAndMigrate = async () => {
+    if (!activeProcessName) return;
+    if (
+      !window.confirm(
+        `¿Confirmar finalización y migrar todos los ingresantes oficiales del proceso "${activeProcessName}" a participantes?`
+      )
+    ) {
+      return;
+    }
+    const defaultDate = new Date().toISOString().split("T")[0];
+    const fechaIngresoInput = window.prompt(
+      "Ingrese la fecha oficial de ingreso para los estudiantes (formato AAAA-MM-DD):",
+      defaultDate
+    );
+    if (fechaIngresoInput === null) {
+      return; // El usuario canceló la operación
+    }
+    const fechaIngresoValida = fechaIngresoInput.trim() || defaultDate;
+    setIsSaving(true);
+    try {
+      // 1. Obtener la modalidad por nombre
+      const { data: modality, error: modErr } = await supabase
+        .from("cv_modalidades")
+        .select("*")
+        .eq("nombre", activeProcessName)
+        .maybeSingle();
+      if (modErr) throw modErr;
+      if (!modality) {
+        throw new Error(`No se encontró la modalidad: ${activeProcessName}`);
+      }
+      // Obtener Cuadro Anual para obtener el año
+      const { data: cuadro, error: cuadroErr } = await supabase
+        .from("cv_cuadros_anuales")
+        .select("anio")
+        .eq("id", modality.cuadro_id)
+        .maybeSingle();
+      if (cuadroErr) throw cuadroErr;
+      const anio = cuadro ? cuadro.anio : new Date().getFullYear().toString();
+      const semestre = modality.semestre || "—";
+      // 2. Obtener todas las escuelas para resolver códigos y filiales
+      const { data: schools, error: schoolsErr } = await supabase
+        .from("cv_escuelas")
+        .select("nombre, codigo_carrera, filial");
+      if (schoolsErr) throw schoolsErr;
+      const schoolCodeMap: Record<string, string> = {};
+      const schoolFilialMap: Record<string, string> = {};
+      const findSchoolByString = (val: string) => {
+        if (!val || !schools) return null;
+        const normVal = val.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+        const words = normVal.split(/\s+/).filter(w => w.length > 2);
+        
+        let found = schools.find(s => 
+          s.nombre.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim() === normVal ||
+          s.codigo_carrera === val
+        );
+        if (found) return found;
+        if (words.length > 0) {
+          found = schools.find(s => {
+            const eName = s.nombre.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+            return words.every(w => eName.includes(w));
+          });
+        }
+        return found || null;
+      };
+      if (schools) {
+        schools.forEach(s => {
+          schoolCodeMap[s.nombre] = s.codigo_carrera;
+          schoolFilialMap[s.nombre] = s.filial || "CUSCO";
+        });
+      }
+      const getRowValue = (row: any, keys: string[]): string => {
+        if (!row) return "";
+        for (const k of keys) {
+          if (row[k] !== undefined && row[k] !== null) {
+            return String(row[k]).trim();
+          }
+        }
+        return "";
+      };
+      const checkAdmitted = (row: any): boolean => {
+        const val = getRowValue(row, [
+          'OBSERVACION', 'Observacion', 'observacion', 
+          'OBSERVACIONES', 'observaciones', 
+          'ESTADO', 'estado', 'resultado', 'RESULTADO'
+        ]).toUpperCase();
+        
+        if (val.includes('NO INGRESA') || val.includes('NO INGRESANTE') || val.includes('NO INGRESO') || val.includes('NO ADMITIDO') || val.includes('NO_INGRESA')) {
+          return false;
+        }
+        if (val.includes('INGRESA') || val.includes('INGRESO') || val.includes('ADMITIDO') || val === 'SI' || val.includes('INGRESANTE')) {
+          return true;
+        }
+        const carreraIng = getRowValue(row, [
+          'CarreraIngreso', 'carreraIngreso', 'CARRERA_INGRESO', 
+          'carrera_ingreso', 'Carrera', 'carrera', 'CARRERA', 
+          'escuela', 'Escuela', 'ESCUELA', 'codigo_carrera', 'COD_CARRERA'
+        ]);
+        if (!val && carreraIng) {
+          const rowKeysLower = Object.keys(row).map(k => k.toLowerCase().replace(/[\s_-]/g, ''));
+          const hasObsColumn = rowKeysLower.some(k => k.includes('observa') || k.includes('estado') || k.includes('result'));
+          if (!hasObsColumn) {
+            return true;
+          }
+        }
+        return false;
+      };
+      // 3. Obtener el archivo CSV cargado en la pre-revisión
+      const { data: fileRecord, error: fileErr } = await supabase
+        .from("pre_revision_archivos")
+        .select("csv_data")
+        .eq("modalidad_id", modality.id)
+        .maybeSingle();
+      if (fileErr) throw fileErr;
+      let csvRows: any[] = [];
+      if (fileRecord && fileRecord.csv_data) {
+        csvRows = typeof fileRecord.csv_data === "string" 
+          ? JSON.parse(fileRecord.csv_data) 
+          : fileRecord.csv_data;
+      }
+      // Normalizar ingresantes regulares del CSV
+      const directIngresantes: any[] = [];
+      const careerCounts: Record<string, number> = {};
+      csvRows.forEach(row => {
+        if (row && checkAdmitted(row)) {
+          const dni = getRowValue(row, ['NroDocumento', 'nroDocumento', 'NRODOCUMENTO', 'DNI', 'dni', 'Documento', 'documento', 'alumno', 'ALUMNO', 'CODPOSTULANTE', 'codpostulante']);
+          const nombre = getRowValue(row, ['nombre', 'Nombre', 'NOMBRE', 'postulante', 'POSTULANTE', 'nombres', 'Nombres', 'NOMBRES', 'ApeNom', 'apenom']);
+          const nota = getRowValue(row, ['Nota', 'nota', 'NOTA', 'Puntaje', 'puntaje', 'PUNTAJE']);
+          const pos = getRowValue(row, ['POS', 'Pos', 'pos', 'posicion', 'Posicion', 'puesto', 'Puesto', 'OMERITO', 'omerito', 'orden_merito']);
+          const rawCode = getRowValue(row, ['codigo_carrera', 'COD_CARRERA', 'codigo', 'Codigo', 'COD_CAR', 'cod_car', 'COD_ESC', 'cod_esc', 'COD_ESCP', 'cod_escp', 'CODIGO_CARRERA', 'CODIGO_ESCUELA', 'carrera_codigo', 'CODIGO', 'cod_carrera', 'CodCarrera']);
+          let sch = null;
+          if (rawCode) {
+            sch = schools?.find(e => e.codigo_carrera === rawCode.trim());
+          }
+          if (!sch) {
+            const rawIng = getRowValue(row, ['CarreraIngreso', 'carreraIngreso', 'CARRERA_INGRESO', 'carrera_ingreso', 'carrera_adjudicada', 'CARRERA_ADJUDICADA']);
+            sch = findSchoolByString(rawIng);
+          }
+          if (!sch) {
+            const rawPost = getRowValue(row, ['Escuela1', 'escuela1', 'ESCUELA1', 'carrera_postula', 'CARRERA_POSTULA', 'carrera_opcion', 'CARRERA_OPCION', 'opcion', 'OPCION', 'Carrera', 'carrera', 'CARRERA', 'escuela', 'Escuela', 'ESCUELA']);
+            sch = findSchoolByString(rawPost);
+          }
+          const schoolName = sch ? sch.nombre : "";
+          const schoolCode = sch ? sch.codigo_carrera : "";
+          const filial = sch ? (sch.filial || "CUSCO") : "CUSCO";
+          const orderNum = parseInt(pos) || 0;
+          if (schoolName) {
+            careerCounts[schoolName] = Math.max(careerCounts[schoolName] || 0, orderNum);
+          }
+          directIngresantes.push({
+            CODPOSTULANTE: dni,
+            NOMBRE: nombre,
+            codigo_carrera: schoolCode,
+            CARRERA: schoolName,
+            FILIAL: filial,
+            MODALIDAD: activeProcessName,
+            SEMESTRE: semestre,
+            ANIO: anio,
+            NOTA: nota,
+            OMERITO: pos || "—",
+            FECHAINGRESO: fechaIngresoValida
+          });
+        }
+      });
+      // 4. Obtener estudiantes adjudicados
+      const { data: adjRanking, error: adjErr } = await supabase
+        .from("adjudicacion_ranking")
+        .select("*")
+        .eq("modalidad", activeProcessName)
+        .eq("observacion", "Adjudicado");
+      if (adjErr) throw adjErr;
+      const adjStudentsBySchool: Record<string, typeof adjRanking> = {};
+      if (adjRanking) {
+        adjRanking.forEach(student => {
+          const schName = student.escuela_adjudicada;
+          if (schName) {
+            if (!adjStudentsBySchool[schName]) {
+              adjStudentsBySchool[schName] = [];
+            }
+            adjStudentsBySchool[schName].push(student);
+          }
+        });
+      }
+      const adjudicatedIngresantes: any[] = [];
+      Object.entries(adjStudentsBySchool).forEach(([schName, students]) => {
+        // Ordenar postulantes adjudicados de esa escuela de mayor a menor nota
+        students.sort((a, b) => (parseFloat(a.nota) || 0) > (parseFloat(b.nota) || 0) ? -1 : 1);
+        const baseMerit = careerCounts[schName] || 0;
+        students.forEach((student, index) => {
+          const schCode = schoolCodeMap[schName] || null;
+          const filial = schoolFilialMap[schName] || "CUSCO";
+          const newMerit = baseMerit + index + 1;
+          adjudicatedIngresantes.push({
+            CODPOSTULANTE: student.dni,
+            NOMBRE: student.nombre,
+            codigo_carrera: schCode,
+            CARRERA: schName,
+            FILIAL: filial,
+            MODALIDAD: activeProcessName,
+            SEMESTRE: semestre,
+            ANIO: anio,
+            NOTA: String(student.nota),
+            OMERITO: String(newMerit),
+            FECHAINGRESO: fechaIngresoValida
+          });
+        });
+      });
+      // 5. Consolidar ambas listas
+      const finalIngresantes = [...directIngresantes, ...adjudicatedIngresantes];
+      // 6. Limpiar participantes antiguos de esta modalidad
+      const { error: delErr = null } = await supabase
+        .from("participantes")
+        .delete()
+        .eq("MODALIDAD", activeProcessName)
+        .eq("SEMESTRE", semestre)
+        .eq("ANIO", anio);
+      if (delErr) throw delErr;
+      // 7. Insertar todos los ingresantes consolidados en bloques para evitar límites de Supabase
+      if (finalIngresantes.length > 0) {
+        const chunkSize = 100;
+        for (let i = 0; i < finalIngresantes.length; i += chunkSize) {
+          const chunk = finalIngresantes.slice(i, i + chunkSize);
+          const { error: insErr } = await supabase.from("participantes").insert(chunk);
+          if (insErr) throw insErr;
+        }
+      }
+      alert(`¡Proceso finalizado! Se migraron exitosamente ${finalIngresantes.length} ingresantes oficiales a participantes (${directIngresantes.length} regulares y ${adjudicatedIngresantes.length} adjudicados) con filiales y orden de mérito consecutivo resueltos.`);
+      fetchData();
+    } catch (e: any) {
+      alert("Error en la migración final: " + e.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleSaveVacancies = async () => {
     setCsvLoading(true);
     try {
@@ -1525,16 +1748,9 @@ ALTER TABLE adjudicacion_ranking DISABLE ROW LEVEL SECURITY;
               Procesos de Adjudicación
             </h1>
             <p className="text-slate-500 font-medium mt-1">
-              Seleccione una adjudicación existente o cree una nueva.
+              Seleccione una adjudicación existente.
             </p>
           </div>
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="px-6 py-3 bg-primary text-white rounded-xl font-black shadow-lg shadow-primary/30 hover:-translate-y-0.5 transition-all flex items-center gap-2"
-          >
-            <span className="material-symbols-outlined">add</span>
-            Nueva Adjudicación
-          </button>
         </div>
 
         {loading ? (
@@ -1928,6 +2144,19 @@ ALTER TABLE adjudicacion_ranking DISABLE ROW LEVEL SECURITY;
                   </span>
                   Maximizar (MC)
                 </button>
+                <button
+                  onClick={handleApproveAndMigrate}
+                  disabled={!activeProcessName || isSaving}
+                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs uppercase tracking-wide transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center gap-1.5 shadow-md disabled:opacity-40 disabled:pointer-events-none"
+                  title="Finalizar el proceso y migrar la lista consolidada de ingresantes oficiales a participantes"
+                >
+                  {isSaving ? (
+                    <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>
+                  ) : (
+                    <span className="material-symbols-outlined text-[18px]">fact_check</span>
+                  )}
+                  Aprobar y Migrar
+                </button>
               </div>
             </div>
 
@@ -1980,7 +2209,7 @@ ALTER TABLE adjudicacion_ranking DISABLE ROW LEVEL SECURITY;
                                 ? "bg-purple-600 text-white shadow-md shadow-purple-600/20"
                                 : "bg-slate-200 text-slate-500"
                             }`}>
-                              {student.orden_merito}
+                              {idx + 1}
                             </div>
                             <div className="flex-1 min-w-0">
                               <h3 className="font-black text-slate-900 text-base truncate" title={student.nombre}>
@@ -2848,7 +3077,7 @@ ALTER TABLE adjudicacion_ranking DISABLE ROW LEVEL SECURITY;
                             ? "bg-primary text-white shadow-lg"
                             : "bg-slate-100 border border-slate-250 text-slate-500"
                         }`}>
-                          {student.orden_merito}
+                          {idx + 1}
                         </div>
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">

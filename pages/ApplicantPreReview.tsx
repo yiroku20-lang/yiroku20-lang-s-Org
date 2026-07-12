@@ -454,6 +454,7 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
+      encoding: "ISO-8859-1",
       complete: async (results) => {
         let parsedData = results.data;
         if (parsedData && parsedData.length > 0) {
@@ -474,6 +475,7 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
               Papa.parse(file, {
                 header: true,
                 skipEmptyLines: true,
+                encoding: "ISO-8859-1",
                 delimiter: detectedDelimiter,
                 complete: (reparsedResults) => {
                   processData(reparsedResults.data);
@@ -1461,36 +1463,10 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
       if (!cuadro || !modalidad) {
          throw new Error("Debe seleccionar Cuadro y Modalidad");
       }
-      // Limpiar datos previos para evitar duplicados si se re-migra el mismo archivo
-      await supabase.from('participantes').delete()
-        .eq('MODALIDAD', modalidad.nombre)
-        .eq('SEMESTRE', selectedSemestre)
-        .eq('ANIO', cuadro.anio);
+      // Limpiar datos previos en las tablas de adjudicación para evitar duplicaciones
       await supabase.from('adjudicacion_ranking').delete().eq('modalidad', modalidad.nombre);
       await supabase.from('adjudicacion_vacantes').delete().eq('modalidad', modalidad.nombre);
-      // 1. Migrar Ingresantes a 'participantes'
-      const admittedRows = normalizedCsvData.filter(row => row.OBSERVACION === 'INGRESANTE');
-      
-      if (admittedRows.length > 0) {
-        const participantesPayload = admittedRows.map(row => ({
-          CODPOSTULANTE: row.NroDocumento,
-          NOMBRE: row.nombre,
-          codigo_carrera: row.CarreraIngreso,
-          CARRERA: getSchoolName(row.CarreraIngreso),
-          FILIAL: 'CUSCO', // Default or map if available
-          MODALIDAD: modalidad.nombre,
-          SEMESTRE: selectedSemestre,
-          ANIO: cuadro.anio,
-          NOTA: row.Nota,
-          OMERITO: row.POS,
-          FECHAINGRESO: new Date().toISOString().split('T')[0]
-        }));
-        
-        // Split into chunks if too large, but assume it fits for now
-        const { error: partErr } = await supabase.from('participantes').insert(participantesPayload);
-        if (partErr) throw new Error(`Error insertando participantes: ${partErr.message}`);
-      }
-      // 2. Migrar Ranking a 'adjudicacion_ranking'
+      // 1. Migrar Ranking a 'adjudicacion_ranking'
       if (rankingData.length > 0) {
         const rankingPayload = rankingData.map(row => ({
           orden_merito: row.orden_merito,
@@ -1504,7 +1480,7 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
         const { error: rankErr } = await supabase.from('adjudicacion_ranking').insert(rankingPayload);
         if (rankErr) throw new Error(`Error insertando ranking: ${rankErr.message}`);
       }
-      // 3. Migrar Vacantes Sobrantes a 'adjudicacion_vacantes'
+      // 2. Migrar Vacantes Sobrantes a 'adjudicacion_vacantes'
       const leftoverVacancies = coberturaRows.filter(row => row.difference > 0);
       if (leftoverVacancies.length > 0) {
         const vacanciesPayload = leftoverVacancies.map(row => ({
@@ -1517,10 +1493,10 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
         const { error: vacErr } = await supabase.from('adjudicacion_vacantes').insert(vacanciesPayload);
         if (vacErr) throw new Error(`Error insertando vacantes sobrantes: ${vacErr.message}`);
       }
-      notify?.('Migración completada exitosamente', 'success');
+      notify?.('Ranking y vacantes exportados a Adjudicación exitosamente', 'success');
       clearData();
     } catch (error: any) {
-      notify?.(`Error en migración: ${error.message}`, 'error');
+      notify?.(`Error en exportación: ${error.message}`, 'error');
     } finally {
       setIsSaving(false);
     }
@@ -1786,9 +1762,9 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
                   {isSaving ? (
                     <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>
                   ) : (
-                    <span className="material-symbols-outlined text-[18px]">fact_check</span>
+                    <span className="material-symbols-outlined text-[18px]">export_notes</span>
                   )}
-                  Aprobar y Migrar
+                  Exportar a Adjudicación
                 </button>
               </div>
             </div>
