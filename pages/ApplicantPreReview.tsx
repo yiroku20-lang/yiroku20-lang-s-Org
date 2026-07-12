@@ -75,6 +75,10 @@ const isAdmittedRow = (row: any): boolean => {
     'ESTADO', 'estado', 'resultado', 'RESULTADO'
   ]).toUpperCase();
   
+  // Regla de descarte para evitar falsos positivos con "NO INGRESA", "NO INGRESANTE", "NO INGRESO", "NO ADMITIDO", "NO_INGRESA"
+  if (val.includes('NO INGRESA') || val.includes('NO INGRESANTE') || val.includes('NO INGRESO') || val.includes('NO ADMITIDO') || val.includes('NO_INGRESA')) {
+    return false;
+  }
   if (val.includes('INGRESA') || val.includes('INGRESO') || val.includes('ADMITIDO') || val === 'SI' || val.includes('INGRESANTE')) {
     return true;
   }
@@ -149,25 +153,41 @@ const normalizeRow = (row: any, escuelas: any[]) => {
   const nota = getRowValue(row, ['Nota', 'nota', 'NOTA', 'Puntaje', 'puntaje', 'PUNTAJE']);
   const pos = getRowValue(row, ['POS', 'Pos', 'pos', 'posicion', 'Posicion', 'puesto', 'Puesto', 'OMERITO', 'omerito', 'orden_merito']);
   
-  // Try to find the school by code first
-  const rawCode = getRowValue(row, ['codigo_carrera', 'COD_CARRERA', 'codigo', 'Codigo', 'COD_CAR', 'cod_car', 'COD_ESC', 'cod_esc', 'COD_ESCP', 'cod_escp', 'CODIGO_CARRERA', 'CODIGO_ESCUELA', 'carrera_codigo', 'CODIGO', 'cod_carrera', 'CodCarrera']);
-  let school = null;
-  if (rawCode) {
-    const cleanCode = String(rawCode).trim();
-    school = escuelas.find(e => e.codigo_carrera === cleanCode || normalizeText(e.codigo_carrera) === normalizeText(cleanCode));
+  // --- 1. Detección de la escuela a la que postuló ---
+  // Primero buscamos en Escuela1 (campo clave de postulación) y sus sinónimos
+  const rawPostula = getRowValue(row, ['Escuela1', 'escuela1', 'ESCUELA1', 'carrera_postula', 'CARRERA_POSTULA', 'carrera_opcion', 'CARRERA_OPCION', 'opcion', 'OPCION']);
+  let schoolPostula = null;
+  if (rawPostula) {
+    schoolPostula = findSchool(rawPostula, escuelas);
   }
   
-  // Fallback to finding by name if school wasn't found by code
-  if (!school) {
-    const rawCarrera = getRowValue(row, ['CarreraIngreso', 'carreraIngreso', 'CARRERA_INGRESO', 'carrera_ingreso', 'Carrera', 'carrera', 'CARRERA', 'escuela', 'Escuela', 'ESCUELA', 'Programa', 'programa', 'PROGRAMA', 'Programa_Estudios', 'programa_estudio', 'PROGRAMA_ESTUDIO', 'carrera_postula', 'CARRERA_POSTULA', 'carrera_opcion', 'CARRERA_OPCION', 'opcion', 'OPCION', 'carrera_adjudicada', 'CARRERA_ADJUDICADA', 'E.P.', 'EP', 'Escuela_Profesional', 'Especialidad', 'especialidad']);
-    school = findSchool(rawCarrera, escuelas);
+  // Si no se encuentra, caemos en los campos generales de carrera
+  if (!schoolPostula) {
+    const rawCarrera = getRowValue(row, ['Carrera', 'carrera', 'CARRERA', 'escuela', 'Escuela', 'ESCUELA', 'Programa', 'programa', 'PROGRAMA', 'Programa_Estudios', 'programa_estudio', 'PROGRAMA_ESTUDIO', 'E.P.', 'EP', 'Escuela_Profesional', 'Especialidad', 'especialidad']);
+    schoolPostula = findSchool(rawCarrera, escuelas);
   }
   
-  const carreraIngreso = school ? school.codigo_carrera : (rawCode || getRowValue(row, ['CarreraIngreso', 'carreraIngreso', 'CARRERA_INGRESO', 'carrera_ingreso', 'Carrera', 'carrera', 'CARRERA', 'escuela', 'Escuela', 'ESCUELA']));
-  
-  const grupo = getRowValue(row, ['grupo', 'Grupo', 'GRUPO', 'area', 'Area', 'AREA', 'especialidad', 'Especialidad', 'filial', 'FILIAL']);
+  const carreraPostula = schoolPostula ? schoolPostula.codigo_carrera : (rawPostula || '');
+  // --- 2. Detección de la escuela de ingreso (solo si es ingresante) ---
   const isIngresante = isAdmittedRow(row);
-
+  let carreraIngreso = '';
+  if (isIngresante) {
+    const rawCode = getRowValue(row, ['codigo_carrera', 'COD_CARRERA', 'codigo', 'Codigo', 'COD_CAR', 'cod_car', 'COD_ESC', 'cod_esc', 'COD_ESCP', 'cod_escp', 'CODIGO_CARRERA', 'CODIGO_ESCUELA', 'carrera_codigo', 'CODIGO', 'cod_carrera', 'CodCarrera']);
+    let schoolIngreso = null;
+    if (rawCode) {
+      const cleanCode = String(rawCode).trim();
+      schoolIngreso = escuelas.find(e => e.codigo_carrera === cleanCode || normalizeText(e.codigo_carrera) === normalizeText(cleanCode));
+    }
+    
+    if (!schoolIngreso) {
+      const rawIngreso = getRowValue(row, ['CarreraIngreso', 'carreraIngreso', 'CARRERA_INGRESO', 'carrera_ingreso', 'carrera_adjudicada', 'CARRERA_ADJUDICADA']);
+      schoolIngreso = findSchool(rawIngreso, escuelas);
+    }
+    
+    // Si no se detectó un código de ingreso explícito, asumimos que ingresó a la misma carrera a la que postuló
+    carreraIngreso = schoolIngreso ? schoolIngreso.codigo_carrera : (carreraPostula || '');
+  }
+  const grupo = getRowValue(row, ['grupo', 'Grupo', 'GRUPO', 'area', 'Area', 'AREA', 'especialidad', 'Especialidad', 'filial', 'FILIAL']);
   return {
     ...row,
     NroDocumento: dni,
@@ -175,7 +195,8 @@ const normalizeRow = (row: any, escuelas: any[]) => {
     nombre,
     Nota: nota,
     POS: pos,
-    CarreraIngreso: carreraIngreso,
+    CarreraPostula: carreraPostula,
+    CarreraIngreso: isIngresante ? carreraIngreso : '',
     OBSERVACION: isIngresante ? 'INGRESANTE' : '',
     grupo
   };
@@ -750,23 +771,29 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
     const admitted: Record<string, number> = {};
     const totalApplicants: Record<string, number> = {};
     
-    // Initialize
+    // Inicializar ambas estructuras
     escuelas.forEach(e => {
       totalApplicants[e.codigo_carrera] = 0;
+      admitted[e.codigo_carrera] = 0;
     });
-
     normalizedCsvData.forEach(row => {
-      if (row && row.CarreraIngreso) {
-        const code = row.CarreraIngreso;
-        if (totalApplicants[code] !== undefined) {
-          totalApplicants[code]++;
+      if (row) {
+        // Contamos el postulante en su carrera de postulación
+        if (row.CarreraPostula) {
+          const codePostula = row.CarreraPostula;
+          if (totalApplicants[codePostula] !== undefined) {
+            totalApplicants[codePostula]++;
+          }
         }
-        if (row.OBSERVACION === 'INGRESANTE') {
-          admitted[code] = (admitted[code] || 0) + 1;
+        // Contamos el ingreso solo si se consolidó como ingresante y tiene código de ingreso
+        if (row.OBSERVACION === 'INGRESANTE' && row.CarreraIngreso) {
+          const codeIngreso = row.CarreraIngreso;
+          if (admitted[codeIngreso] !== undefined) {
+            admitted[codeIngreso]++;
+          }
         }
       }
     });
-
     return { admittedBySchool: admitted, totalApplicantsBySchool: totalApplicants };
   }, [escuelas, normalizedCsvData]);
 
@@ -935,6 +962,7 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
       return (row.NroDocumento || '').toLowerCase().includes(term) ||
              (row.nombre || '').toLowerCase().includes(term) ||
              (row.CarreraIngreso || '').toLowerCase().includes(term) ||
+             (row.CarreraPostula || '').toLowerCase().includes(term) ||
              (row.OBSERVACION || '').toLowerCase().includes(term);
     });
   }, [normalizedCsvData, listSearchTerm]);
@@ -1338,56 +1366,26 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
   }, [normalizedCsvData]);
 
   const schoolsApplicantsData = useMemo(() => {
-    const dataMap: Record<string, { total: number, admitted: number, schoolName: string, area: string, vacancies: number }> = {};
-    
-    // Initialize ALL schools
-    escuelas.forEach(e => {
-      const vac = vacanciesBySchool[e.codigo_carrera] || 0;
-      const adm = admittedBySchool[e.codigo_carrera] || 0;
-      dataMap[e.codigo_carrera] = {
-        total: 0,
-        admitted: adm,
-        schoolName: e.nombre,
-        area: e.area,
-        vacancies: vac
-      };
-    });
-
-    // Count total applicants (both admitted and not admitted) by their CarreraIngreso or other mapped school code
-    normalizedCsvData.forEach(row => {
-      const code = row.CarreraIngreso;
-      if (code && dataMap[code]) {
-        dataMap[code].total++;
-      }
-    });
-
-    let list = Object.entries(dataMap).map(([code, stats]) => {
-      const ratio = stats.vacancies > 0 ? (stats.total / stats.vacancies).toFixed(1) : '—';
-      return {
-        code,
-        name: stats.schoolName,
-        area: stats.area,
-        total: stats.total,
-        admitted: stats.admitted,
-        ratio, // Competition ratio: applicants / vacancies
-        vacancies: stats.vacancies
-      };
-    })
-    .filter(item => item.vacancies > 0 || item.total > 0 || item.admitted > 0);
-
+    let list = coberturaRows.map(item => ({
+      code: item.schoolCode,
+      name: item.schoolName,
+      area: item.area,
+      total: item.applicants,
+      admitted: item.admitted,
+      ratio: item.ratio,
+      vacancies: item.vacancies
+    }));
     // Apply area filter
     if (schoolsFilterArea !== 'Todas las Áreas') {
       const areaClean = schoolsFilterArea.replace('Área ', '');
       list = list.filter(item => item.area === areaClean);
     }
-
     // Apply vacancy filter
     if (schoolsFilterVacancies === 'con-vacantes') {
       list = list.filter(item => item.vacancies > 0);
     } else if (schoolsFilterVacancies === 'sin-vacantes') {
       list = list.filter(item => item.vacancies === 0);
     }
-
     // Apply search query filter
     if (schoolsSearchQuery.trim() !== '') {
       const q = schoolsSearchQuery.toLowerCase().trim();
@@ -1396,7 +1394,6 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
         item.code.toLowerCase().includes(q)
       );
     }
-
     // Apply sorting
     list.sort((a, b) => {
       if (schoolsSortBy === 'postulantes-desc') {
@@ -1426,13 +1423,9 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
       }
       return b.total - a.total;
     });
-
     return list;
   }, [
-    normalizedCsvData,
-    escuelas,
-    vacanciesBySchool,
-    admittedBySchool,
+    coberturaRows,
     schoolsSearchQuery,
     schoolsSortBy,
     schoolsFilterVacancies,
@@ -1468,7 +1461,13 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
       if (!cuadro || !modalidad) {
          throw new Error("Debe seleccionar Cuadro y Modalidad");
       }
-
+      // Limpiar datos previos para evitar duplicados si se re-migra el mismo archivo
+      await supabase.from('participantes').delete()
+        .eq('MODALIDAD', modalidad.nombre)
+        .eq('SEMESTRE', selectedSemestre)
+        .eq('ANIO', cuadro.anio);
+      await supabase.from('adjudicacion_ranking').delete().eq('modalidad', modalidad.nombre);
+      await supabase.from('adjudicacion_vacantes').delete().eq('modalidad', modalidad.nombre);
       // 1. Migrar Ingresantes a 'participantes'
       const admittedRows = normalizedCsvData.filter(row => row.OBSERVACION === 'INGRESANTE');
       
@@ -1491,7 +1490,6 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
         const { error: partErr } = await supabase.from('participantes').insert(participantesPayload);
         if (partErr) throw new Error(`Error insertando participantes: ${partErr.message}`);
       }
-
       // 2. Migrar Ranking a 'adjudicacion_ranking'
       if (rankingData.length > 0) {
         const rankingPayload = rankingData.map(row => ({
@@ -1503,11 +1501,22 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
           modalidad: modalidad.nombre,
           estado_asistencia: false
         }));
-
         const { error: rankErr } = await supabase.from('adjudicacion_ranking').insert(rankingPayload);
         if (rankErr) throw new Error(`Error insertando ranking: ${rankErr.message}`);
       }
-
+      // 3. Migrar Vacantes Sobrantes a 'adjudicacion_vacantes'
+      const leftoverVacancies = coberturaRows.filter(row => row.difference > 0);
+      if (leftoverVacancies.length > 0) {
+        const vacanciesPayload = leftoverVacancies.map(row => ({
+          escuela: row.schoolName,
+          area: row.area,
+          vacantes_totales: row.difference,
+          vacantes_disponibles: row.difference,
+          modalidad: modalidad.nombre
+        }));
+        const { error: vacErr } = await supabase.from('adjudicacion_vacantes').insert(vacanciesPayload);
+        if (vacErr) throw new Error(`Error insertando vacantes sobrantes: ${vacErr.message}`);
+      }
       notify?.('Migración completada exitosamente', 'success');
       clearData();
     } catch (error: any) {
