@@ -1483,13 +1483,13 @@ export default function Adjudication() {
         }
         return false;
       };
-      // 3. Obtener el archivo CSV cargado en la pre-revisión
-      const { data: fileRecord, error: fileErr } = await supabase
-        .from("pre_revision_archivos")
-        .select("csv_data")
-        .eq("modalidad_id", modality.id)
-        .maybeSingle();
-      if (fileErr) throw fileErr;
+      // 3. Obtener el archivo CSV cargado en la pre-revisión mediante la API (evita bloqueos RLS en el frontend)
+      const apiRes = await fetch(`/api/get-pre-revision/${modality.id}`);
+      if (!apiRes.ok) {
+        throw new Error(`Error al obtener los datos del CSV desde el servidor: ${apiRes.statusText}`);
+      }
+      const responseJson = await apiRes.json();
+      const fileRecord = responseJson.data;
       let csvRows: any[] = [];
       if (fileRecord && fileRecord.csv_data) {
         csvRows = typeof fileRecord.csv_data === "string" 

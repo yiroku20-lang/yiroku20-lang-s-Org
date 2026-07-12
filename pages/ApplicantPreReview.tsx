@@ -1463,6 +1463,18 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
       if (!cuadro || !modalidad) {
          throw new Error("Debe seleccionar Cuadro y Modalidad");
       }
+      // Validar si ya existen registros previos en adjudicacion_ranking para evitar sobreescribir accidentalmente
+      const { data: existingRank } = await supabase
+        .from('adjudicacion_ranking')
+        .select('id')
+        .eq('modalidad', modalidad.nombre)
+        .limit(1);
+      if (existingRank && existingRank.length > 0) {
+        if (!window.confirm("¡ATENCIÓN! Ya existen datos de adjudicación para esta modalidad (asistencias o adjudicados registrados). Si continúas, SE BORRARÁ TODO EL PROGRESO de la ceremonia y se reiniciará el proceso. ¿Realmente deseas volver a exportar?")) {
+          setIsSaving(false);
+          return;
+        }
+      }
       // Limpiar datos previos en las tablas de adjudicación para evitar duplicaciones
       await supabase.from('adjudicacion_ranking').delete().eq('modalidad', modalidad.nombre);
       await supabase.from('adjudicacion_vacantes').delete().eq('modalidad', modalidad.nombre);
