@@ -496,7 +496,7 @@ export const ExamBudget: React.FC<ExamBudgetProps> = ({ user, notify }) => {
     const baseTemplate = `# INSTRUCTIVO OFICIAL DE FUNCIONES Y PROTOCOLO DE ADMISIÓN
 
 **DOCUMENTO OFICIAL DE ADMISIÓN UNSAAC**
-**ÓRGANO DESIGNADOR:** Vicerrectorado Académico • Dirección de Admisión
+**ÓRGANO DESIGNADOR:** Dirección de Admisión
 **CARGO OPERATIVO:** ${roleName.toUpperCase()}
 **PROCESO ACADÉMICO:** Examen de Admisión
 **MODALIDAD DE INGRESO:** ${modalName} (${cuadroName})
@@ -548,11 +548,12 @@ BORRADOR ACTUAL DEL DOCUMENTO:
 ${instructiveText}
 
 REGLAS DE REFINAMIENTO (OBLIGATORIAS):
-1. Redacta en un tono sumamente formal, oficial, legal y administrativo, representativo del Vicerrectorado Académico de la UNSAAC.
+1. Redacta en un tono sumamente formal, oficial, legal y administrativo, representativo de la Dirección de Admisión de la UNSAAC.
 2. Utiliza una excelente sintaxis, vocabulario técnico-jurídico-administrativo (ej. "en estricta salvaguarda", "bajo apercibimiento de sanción", "con arreglo a ley", "bajo responsabilidad civil y administrativa").
 3. MANTÉN ESTRICTAMENTE EL FORMATO DE TABLA/CUADRO CRONOLÓGICO: El cronograma de actividades DEBE mantenerse estrictamente estructurado en formato de Tabla de Markdown con las columnas correspondientes (| FECHA | HORARIO | ACTIVIDAD / FUNCIÓN OFICIAL | LUGAR ASIGNADO |). No lo destruyas ni lo conviertas en texto plano.
 4. NO ADIVINES NI INVENTES ACTIVIDADES: Limítate estrictamente a las actividades y horarios reales que ya figuran en la tabla actual del borrador, sin añadir tareas ficticias o fechas imaginarias.
 5. El resultado final debe conservar únicamente el texto Markdown refinado. Evita cualquier tipo de saludo, aclaración o comentario informal antes o después del texto.
+6. NO MENCIONES NI INCLUYAS a 'Vicerrectorado Académico' como órgano designador o emisor principal; el único órgano oficial emisor del instructivo debe ser la Dirección de Admisión de la UNSAAC.
 `;
 
       const res = await fetch('/api/gemini', {
@@ -623,7 +624,7 @@ REGLAS DE REFINAMIENTO (OBLIGATORIAS):
             letterRendering: true
           },
           jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' },
-          pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
+          pagebreak:    { mode: ['css', 'legacy'] }
         };
 
         await html2pdf().set(opt).from(element).save();
@@ -1022,7 +1023,51 @@ REGLAS DE REFINAMIENTO (OBLIGATORIAS):
   const totalGeneral = budgetItems.reduce((acc, item) => acc + item.total, 0);
   const totalPersonal = budgetItems.reduce((acc, item) => (item.condition === 'D' || item.condition === 'A') ? acc + item.quantity : acc, 0);
 
-  const getScheduleForRole = (roleName: string) => roleSchedules.find(s => s.roleName === roleName) || { id: crypto.randomUUID(), roleName, events: [] };
+  const getScheduleForRole = (roleName: string): RoleSchedule => {
+    // 1. Obtener la personalización guardada del rol (si existe)
+    const savedRoleSchedule = roleSchedules.find(s => s.roleName === roleName);
+    
+    // 2. Filtrar eventos del Cronograma General que pertenecen a este rol por nombre de grupo
+    const normRole = roleName.toLowerCase();
+    const matchedGeneralEvents = generalSchedules.filter(ev => {
+      const group = (ev.group || '').toLowerCase();
+      if (group === normRole) return true;
+      if (normRole.includes(group) || group.includes(normRole)) return true;
+      if (group.includes('jurado') && (normRole.includes('jurado') || normRole.includes('receptor'))) return true;
+      if (group.includes('tarjeta') && normRole.includes('tarjeta')) return true;
+      if (group.includes('planta') && (normRole.includes('planta') || normRole.includes('carpetero'))) return true;
+      if (group.includes('rector') && normRole.includes('rector')) return true;
+      if (group.includes('puerta') && (normRole.includes('puerta') || normRole.includes('control de puerta'))) return true;
+      if (group.includes('autoridades') && (normRole.includes('decano') || normRole.includes('autoridad') || normRole.includes('autoridades'))) return true;
+      if (group.includes('administrativo') && (normRole.includes('administrativo') || normRole.includes('funcionarios'))) return true;
+      return false;
+    });
+    // 3. Mapear los eventos generales inyectando sobreescrituras locales ("overrides")
+    const resolvedEvents = matchedGeneralEvents.map(baseEv => {
+      const override = savedRoleSchedule?.events.find(e => e.baseEventId === baseEv.id);
+      
+      return {
+        id: override ? override.id : baseEv.id,
+        baseEventId: baseEv.id,
+        date: override?.date || baseEv.date || '',
+        time: override?.time || baseEv.time || '',
+        activity: override?.activity || baseEv.activity || '',
+        location: override?.location || baseEv.location || '',
+        isOverride: !!override
+      };
+    });
+    // 4. Agregar eventos 100% personalizados creados en este rol (que no vienen del cronograma general)
+    const customOnlyEvents = savedRoleSchedule?.events.filter(e => !e.baseEventId) || [];
+    
+    // Unificar y ordenar de forma cronológica
+    const allEvents = sortEvents([...resolvedEvents, ...customOnlyEvents]);
+    return {
+      id: savedRoleSchedule?.id || crypto.randomUUID(),
+      roleName,
+      events: allEvents,
+      instructiveText: savedRoleSchedule?.instructiveText || ''
+    };
+  };
 
   const addEventToRole = (roleName: string) => {
     if (isLocked) return;
@@ -1095,21 +1140,70 @@ REGLAS DE REFINAMIENTO (OBLIGATORIAS):
 
   const updateEvent = (roleName: string, eventId: string, field: keyof ScheduleEvent, value: string) => {
     if (isLocked) return;
-    setRoleSchedules(prev => prev.map(s => {
-      if (s.roleName === roleName) {
-        const updatedEvents = s.events.map(e => e.id === eventId ? { ...e, [field]: value } : e);
-        return {
-          ...s,
-          events: sortEvents(updatedEvents)
+    setRoleSchedules(prev => {
+      const roleSchedule = prev.find(s => s.roleName === roleName);
+      
+      if (roleSchedule) {
+        // Buscar si el evento ya existe en las sobreescrituras
+        const existingEvent = roleSchedule.events.find(e => e.id === eventId || e.baseEventId === eventId);
+        
+        let updatedEvents;
+        if (existingEvent) {
+          // Si ya existe la sobreescritura, la actualizamos
+          updatedEvents = roleSchedule.events.map(e => 
+            (e.id === eventId || e.baseEventId === eventId) ? { ...e, [field]: value } : e
+          );
+        } else {
+          // Si es la primera vez que se edita el evento general desde este rol:
+          // Obtenemos los valores base y creamos el registro de sobreescritura (override)
+          const baseEv = generalSchedules.find(g => g.id === eventId);
+          const newOverride: ScheduleEvent = {
+            id: crypto.randomUUID(),
+            baseEventId: eventId,
+            date: baseEv?.date || '',
+            time: baseEv?.time || '',
+            activity: baseEv?.activity || '',
+            location: baseEv?.location || '',
+            [field]: value // Sobreescribimos el campo editado
+          };
+          updatedEvents = [...roleSchedule.events, newOverride];
+        }
+        
+        return prev.map(s => s.roleName === roleName ? { ...s, events: updatedEvents } : s);
+      } else {
+        // Si el rol no tenía ninguna personalización previa, inicializamos el objeto
+        const baseEv = generalSchedules.find(g => g.id === eventId);
+        const newOverride: ScheduleEvent = {
+          id: crypto.randomUUID(),
+          baseEventId: eventId,
+          date: baseEv?.date || '',
+          time: baseEv?.time || '',
+          activity: baseEv?.activity || '',
+          location: baseEv?.location || '',
+          [field]: value
         };
+        return [...prev, {
+          id: crypto.randomUUID(),
+          roleName,
+          events: [newOverride]
+        }];
       }
-      return s;
-    }));
+    });
   };
 
   const removeEvent = (roleName: string, eventId: string) => {
     if (isLocked) return;
-    setRoleSchedules(prev => prev.map(s => s.roleName === roleName ? { ...s, events: s.events.filter(e => e.id !== eventId) } : s));
+    setRoleSchedules(prev => prev.map(s => {
+      if (s.roleName === roleName) {
+        // Elimina la personalización/override (lo que hace que vuelva a heredar los valores del general)
+        // O elimina el evento completamente si era un evento 100% personalizado (sin baseEventId)
+        return { 
+          ...s, 
+          events: s.events.filter(e => e.id !== eventId && e.baseEventId !== eventId) 
+        };
+      }
+      return s;
+    }));
   };
 
   const loadOfficialSchedulesTemplate = () => {
@@ -2681,6 +2775,9 @@ REGLAS DE REFINAMIENTO (OBLIGATORIAS):
                           text-transform: uppercase !important;
                           color: #0f172a !important;
                         }
+                        .instructive-markdown-content tr {
+                          page-break-inside: avoid !important;
+                        }
                         .instructive-markdown-content td {
                           border: 1px solid #cbd5e1 !important;
                           padding: 6px 8px !important;
@@ -2690,24 +2787,27 @@ REGLAS DE REFINAMIENTO (OBLIGATORIAS):
                       `}</style>
 
                       {/* Letterhead */}
-                      <div className="flex justify-between items-center pb-4 border-b-2 border-slate-900 mb-6">
-                        <img 
-                          src="https://cnqpzyanmmwspvemcfeb.supabase.co/storage/v1/object/public/logos/escudo%20oficial-02%20(2).png" 
-                          alt="UNSAAC Escudo" 
-                          className="h-20 w-auto object-contain" 
-                          referrerPolicy="no-referrer" 
-                        />
-                        <div className="text-center flex-1 px-4">
-                          <h2 className="font-extrabold text-[12px] text-slate-900 uppercase leading-tight tracking-wider">Universidad Nacional de San Antonio Abad del Cusco</h2>
-                          <p className="text-[9px] font-black text-slate-600 uppercase tracking-widest mt-0.5">Vicerrectorado Académico</p>
-                          <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Oficina de Admisión</p>
+                      <div className="flex items-center pb-4 border-b-2 border-slate-900 mb-6" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                        <div style={{ width: '80px', textAlign: 'left' }}>
+                          <img 
+                            src="https://cnqpzyanmmwspvemcfeb.supabase.co/storage/v1/object/public/logos/escudo%20oficial-02%20(2).png" 
+                            alt="UNSAAC Escudo" 
+                            className="h-16 w-auto object-contain" 
+                            referrerPolicy="no-referrer" 
+                          />
                         </div>
-                        <img 
-                          src="https://cnqpzyanmmwspvemcfeb.supabase.co/storage/v1/object/public/logos/logo%20admision%201.png" 
-                          alt="Oficina de Admisión Logo" 
-                          className="h-32 w-auto object-contain" 
-                          referrerPolicy="no-referrer" 
-                        />
+                        <div style={{ flex: 1, textAlign: 'center', padding: '0 10px' }}>
+                          <h2 className="font-extrabold text-[12px] text-slate-900 uppercase leading-tight tracking-wider" style={{ margin: 0, padding: 0, textAlign: 'center' }}>Universidad Nacional de San Antonio Abad del Cusco</h2>
+                          <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest" style={{ margin: '4px 0 0 0', padding: 0, textAlign: 'center' }}>Oficina de Admisión</p>
+                        </div>
+                        <div style={{ width: '80px', textAlign: 'right' }}>
+                          <img 
+                            src="https://cnqpzyanmmwspvemcfeb.supabase.co/storage/v1/object/public/logos/logo%20admision%201.png" 
+                            alt="Oficina de Admisión Logo" 
+                            className="h-16 w-auto object-contain" 
+                            referrerPolicy="no-referrer" 
+                          />
+                        </div>
                       </div>
 
                       {/* Document Title */}

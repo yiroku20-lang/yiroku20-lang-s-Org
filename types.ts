@@ -473,10 +473,12 @@ export interface ScheduleEvent {
   activity: string;
   location: string;
   date?: string;
+  baseEventId?: string; // Enlace al evento del cronograma general
 }
 
 export interface RoleSchedule {
   id: string;
   roleName: string; // e.g., "Director General de Admisión"
   events: ScheduleEvent[];
+  instructiveText?: string;
 }

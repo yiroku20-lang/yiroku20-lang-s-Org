@@ -232,6 +232,7 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
   const [listSearchTerm, setListSearchTerm] = useState('');
 
   const [isSaving, setIsSaving] = useState(false);
+  const [isFinalized, setIsFinalized] = useState(false);
   const [savedModalidadIds, setSavedModalidadIds] = useState<string[]>([]);
   const [allModalidades, setAllModalidades] = useState<CVModalidad[]>([]);
 
@@ -328,10 +329,41 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
   useEffect(() => {
     if (selectedModalidad) {
       checkPreRevision(selectedModalidad);
+      checkIfFinalized(selectedModalidad);
     } else {
       clearData();
+      setIsFinalized(false);
     }
-  }, [selectedModalidad]);
+  }, [selectedModalidad, selectedCuadro]);
+
+  const checkIfFinalized = async (modId: string) => {
+    try {
+      const cuadro = cuadros.find(c => c.id === selectedCuadro);
+      const modality = modalidades.find(m => m.id === modId) || allModalidades.find(m => m.id === modId);
+      if (!cuadro || !modality) {
+        setIsFinalized(false);
+        return;
+      }
+      const anio = cuadro.anio || new Date().getFullYear().toString();
+      const semestre = modality.semestre || "—";
+      
+      const { count, error } = await supabase
+        .from('participantes')
+        .select('*', { count: 'exact', head: true })
+        .eq('MODALIDAD', modality.nombre)
+        .eq('SEMESTRE', semestre)
+        .eq('ANIO', anio);
+        
+      if (!error && count !== null && count > 0) {
+        setIsFinalized(true);
+      } else {
+        setIsFinalized(false);
+      }
+    } catch (e) {
+      console.error("Error checking finalization state:", e);
+      setIsFinalized(false);
+    }
+  };
 
   const fetchVacantesForModality = async (modId: string) => {
     try {
@@ -1454,6 +1486,10 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
   }, [schoolsApplicantsData]);
 
   const handleApproveAndMigrate = async () => {
+    if (isFinalized) {
+      notify?.("Este proceso ya ha sido aprobado y migrado permanentemente. No se puede volver a exportar.", "error");
+      return;
+    }
     setIsSaving(true);
     try {
       // Find the selected Cuadro to get Semestre and Anio
@@ -1659,21 +1695,31 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
             {selectedModalidad && (
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Archivo CSV de Resultados</label>
-                <div className="border-2 border-dashed border-slate-300 rounded-2xl p-8 text-center hover:bg-slate-50 transition-colors">
-                  <input 
-                    type="file" 
-                    accept=".csv"
-                    className="hidden"
-                    id="csv-upload"
-                    ref={fileInputRef}
-                    onChange={handleFileUpload}
-                  />
-                  <label htmlFor="csv-upload" className="cursor-pointer flex flex-col items-center">
-                    <span className="material-symbols-outlined text-4xl text-slate-400 mb-2">upload_file</span>
-                    <span className="text-sm font-bold text-primary">Haz clic para subir el archivo CSV</span>
-                    <span className="text-xs text-slate-500 mt-1">o arrastra y suelta aquí</span>
-                  </label>
-                </div>
+                {isFinalized ? (
+                  <div className="bg-slate-50 border-2 border-slate-200 rounded-2xl p-8 text-center flex flex-col items-center justify-center">
+                    <span className="material-symbols-outlined text-4xl text-emerald-600 mb-2">verified_user</span>
+                    <span className="text-sm font-black text-slate-700 uppercase tracking-wide">Proceso Aprobado y Migrado</span>
+                    <p className="text-xs text-slate-500 mt-1.5 max-w-xs leading-relaxed font-semibold">
+                      Este proceso ha sido cerrado de forma definitiva. Toda la información ha sido migrada con éxito a participantes y se encuentra congelada.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="border-2 border-dashed border-slate-300 rounded-2xl p-8 text-center hover:bg-slate-50 transition-colors">
+                    <input 
+                      type="file" 
+                      accept=".csv"
+                      className="hidden"
+                      id="csv-upload"
+                      ref={fileInputRef}
+                      onChange={handleFileUpload}
+                    />
+                    <label htmlFor="csv-upload" className="cursor-pointer flex flex-col items-center">
+                      <span className="material-symbols-outlined text-4xl text-slate-400 mb-2">upload_file</span>
+                      <span className="text-sm font-bold text-primary">Haz clic para subir el archivo CSV</span>
+                      <span className="text-xs text-slate-500 mt-1">o arrastra y suelta aquí</span>
+                    </label>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1766,18 +1812,29 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
                   <span className="material-symbols-outlined text-[18px]">clear_all</span>
                   Limpiar
                 </button>
-                <button 
-                  onClick={handleApproveAndMigrate}
-                  disabled={isSaving}
-                  className="px-4 py-2 rounded-xl text-sm font-bold uppercase tracking-wider bg-emerald-600 text-white hover:bg-emerald-700 transition-colors flex items-center gap-2 disabled:opacity-50"
-                >
-                  {isSaving ? (
-                    <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>
-                  ) : (
-                    <span className="material-symbols-outlined text-[18px]">export_notes</span>
-                  )}
-                  Exportar a Adjudicación
-                </button>
+                {isFinalized ? (
+                  <button 
+                    disabled={true}
+                    className="px-4 py-2 rounded-xl text-sm font-bold uppercase tracking-wider bg-slate-100 text-slate-400 border border-slate-200 transition-colors flex items-center gap-2 cursor-not-allowed"
+                    title="Este proceso ya ha sido aprobado y migrado de manera definitiva."
+                  >
+                    <span className="material-symbols-outlined text-[18px]">lock</span>
+                    Proceso Finalizado
+                  </button>
+                ) : (
+                  <button 
+                    onClick={handleApproveAndMigrate}
+                    disabled={isSaving}
+                    className="px-4 py-2 rounded-xl text-sm font-bold uppercase tracking-wider bg-emerald-600 text-white hover:bg-emerald-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+                  >
+                    {isSaving ? (
+                      <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>
+                    ) : (
+                      <span className="material-symbols-outlined text-[18px]">export_notes</span>
+                    )}
+                    Exportar a Adjudicación
+                  </button>
+                )}
               </div>
             </div>
 
