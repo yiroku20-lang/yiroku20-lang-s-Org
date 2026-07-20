@@ -151,7 +151,7 @@ const normalizeRow = (row: any, escuelas: any[]) => {
   if (!row) return row;
   const dni = getRowValue(row, ['NroDocumento', 'nroDocumento', 'NRODOCUMENTO', 'DNI', 'dni', 'Documento', 'documento', 'alumno', 'ALUMNO', 'CODPOSTULANTE', 'codpostulante']);
   const nombre = getRowValue(row, ['nombre', 'Nombre', 'NOMBRE', 'postulante', 'POSTULANTE', 'nombres', 'Nombres', 'NOMBRES', 'ApeNom', 'apenom']);
-  const nota = getRowValue(row, ['Nota', 'nota', 'NOTA', 'Puntaje', 'puntaje', 'PUNTAJE']);
+  const nota = getRowValue(row, ['Nota', 'nota', 'NOTA', 'Puntaje', 'puntaje', 'PUNTAJE', 'notavigesimal', 'notavigesimal', 'NOTA_VIGESIMAL', 'nota_vigesimal']);
   const pos = getRowValue(row, ['POS', 'Pos', 'pos', 'posicion', 'Posicion', 'puesto', 'Puesto', 'OMERITO', 'omerito', 'orden_merito']);
   
   // --- 1. Detección de la escuela a la que postuló ---
@@ -1237,8 +1237,16 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
   const schoolOriginsData = useMemo(() => {
     const schoolCounts: Record<string, { total: number, admitted: number, code: string }> = {};
     normalizedCsvData.forEach(row => {
-      let schVal = getRowValue(row, ['nombrecolegio', 'colegio', 'COLEGIO', 'Colegio', 'colegio_origen', 'COLEGIO_ORIGEN', 'institucion', 'IE', 'I.E.', 'nombre_ie']);
-      let schCode = getRowValue(row, ['cod_colegio', 'codigo_colegio', 'COD_COLEGIO', 'CODIGO_COLEGIO', 'cod_modular', 'cod_mod']);
+      const originalRow = row._raw || row;
+      let schVal = getRowValue(originalRow, ['nombrecolegio', 'colegio', 'COLEGIO', 'Colegio', 'colegio_origen', 'COLEGIO_ORIGEN', 'institucion', 'IE', 'I.E.', 'nombre_ie']);
+      let schCode = getRowValue(originalRow, ['cod_colegio', 'codigo_colegio', 'COD_COLEGIO', 'CODIGO_COLEGIO', 'cod_modular', 'cod_mod']);
+      
+      if (!schCode) {
+        const potentialCode = getRowValue(originalRow, ['colegio', 'COLEGIO', 'Colegio']);
+        if (potentialCode && potentialCode !== schVal) {
+          schCode = potentialCode;
+        }
+      }
       
       if (!schVal && schCode) {
         schVal = `IE COD. ${schCode}`;
