@@ -4,6 +4,8 @@ import { safeStorage } from '../lib/safeStorage';
 import { User, CVCuadroAnual, CVModalidad, CVEscuela, CVVacante } from '../types';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell
@@ -234,6 +236,7 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
 
   const [isSaving, setIsSaving] = useState(false);
   const [isFinalized, setIsFinalized] = useState(false);
+  const [expandedSchool, setExpandedSchool] = useState<string | null>(null);
   const [savedModalidadIds, setSavedModalidadIds] = useState<string[]>([]);
   const [allModalidades, setAllModalidades] = useState<CVModalidad[]>([]);
 
@@ -1235,7 +1238,7 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
   }, [normalizedCsvData]);
 
   const schoolOriginsData = useMemo(() => {
-    const schoolCounts: Record<string, { total: number, admitted: number, code: string }> = {};
+    const schoolCounts: Record<string, { total: number, admitted: number, code: string, areas: Record<string, { total: number, admitted: number }> }> = {};
     normalizedCsvData.forEach(row => {
       const originalRow = row._raw || row;
       let schVal = getRowValue(originalRow, ['nombrecolegio', 'colegio', 'COLEGIO', 'Colegio', 'colegio_origen', 'COLEGIO_ORIGEN', 'institucion', 'IE', 'I.E.', 'nombre_ie']);
@@ -1259,21 +1262,35 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
       const key = schCode ? `${schCode} - ${schVal}` : schVal;
       
       if (!schoolCounts[key]) {
-        schoolCounts[key] = { total: 0, admitted: 0, code: schCode };
+        schoolCounts[key] = { 
+          total: 0, 
+          admitted: 0, 
+          code: schCode,
+          areas: {}
+        };
       }
+      
       schoolCounts[key].total++;
+      
+      // Obtener el área del postulante (A, B, C, D)
+      const area = row.grupo || 'SIN ÁREA';
+      if (!schoolCounts[key].areas[area]) {
+        schoolCounts[key].areas[area] = { total: 0, admitted: 0 };
+      }
+      schoolCounts[key].areas[area].total++;
       if (row.OBSERVACION === 'INGRESANTE') {
         schoolCounts[key].admitted++;
+        schoolCounts[key].areas[area].admitted++;
       }
     });
-
     return Object.entries(schoolCounts)
       .map(([name, stats]) => ({
         name,
         code: stats.code,
         total: stats.total,
         admitted: stats.admitted,
-        ratio: stats.total > 0 ? ((stats.admitted / stats.total) * 100).toFixed(1) : '0'
+        ratio: stats.total > 0 ? ((stats.admitted / stats.total) * 100).toFixed(1) : '0',
+        areas: stats.areas
       }))
       .sort((a, b) => b.total - a.total);
   }, [normalizedCsvData]);
@@ -1570,6 +1587,337 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
       return acc;
     }, {} as Record<string, typeof schoolsApplicantsData>);
   }, [schoolsApplicantsData]);
+
+  const generateCompetitivityReport = () => {
+    const doc = new jsPDF('p', 'mm', 'a4');
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 14;
+    let y = margin;
+    const currentMod = allModalidades.find(m => m.id === selectedModalidad) || modalidades.find(m => m.id === selectedModalidad);
+    const modalidadName = currentMod ? currentMod.nombre : 'MODALIDAD NO SELECCIONADA';
+    const fechaReporte = new Date().toLocaleDateString('es-PE', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    // Portada
+    doc.setFillColor(16, 44, 87); // UNSAAC Navy Blue
+    doc.rect(0, 0, pageWidth, 45, 'F');
+    doc.setFillColor(212, 175, 55); // UNSAAC Gold
+    doc.rect(0, 45, pageWidth, 3, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(20);
+    doc.setFont('helvetica', 'bold');
+    doc.text('UNIVERSIDAD NACIONAL DE', pageWidth / 2, 18, { align: 'center' });
+    doc.text('SAN ANTONIO ABAD DEL CUSCO', pageWidth / 2, 28, { align: 'center' });
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Dirección de Admisión - Oficina de Sistemas', pageWidth / 2, 38, { align: 'center' });
+    y = 65;
+    doc.setTextColor(16, 44, 87); // UNSAAC Navy Blue
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.text('REPORTE DE COMPETITIVIDAD Y SELECTIVIDAD', pageWidth / 2, y, { align: 'center' });
+    y += 10;
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(71, 85, 105);
+    doc.text(`Modalidad: ${modalidadName}`, pageWidth / 2, y, { align: 'center' });
+    y += 6;
+    doc.text(`Generado: ${fechaReporte}`, pageWidth / 2, y, { align: 'center' });
+    y += 10;
+    doc.setDrawColor(212, 175, 55); // UNSAAC Gold
+    doc.setLineWidth(0.5);
+    doc.line(margin + 20, y, pageWidth - margin - 20, y);
+    // 1. Resumen Ejecutivo
+    y += 15;
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(16, 44, 87); // UNSAAC Navy Blue
+    doc.text('1. RESUMEN EJECUTIVO', margin, y);
+    y += 2;
+    doc.setDrawColor(212, 175, 55); // UNSAAC Gold
+    doc.setLineWidth(0.8);
+    doc.line(margin, y, margin + 50, y);
+    y += 8;
+    const totalPostulantes = normalizedCsvData.length;
+    const totalIngresantes = normalizedCsvData.filter(r => r.OBSERVACION === 'INGRESANTE').length;
+    const tasaGlobal = totalPostulantes > 0 ? ((totalIngresantes / totalPostulantes) * 100).toFixed(1) : '0.0';
+    const boxW = (pageWidth - margin * 2 - 9) / 4;
+    const metrics = [
+      { l: 'Postulantes', v: String(totalPostulantes), c: [16, 44, 87] as [number, number, number] }, // UNSAAC Navy
+      { l: 'Ingresantes', v: String(totalIngresantes), c: [16, 185, 129] as [number, number, number] },
+      { l: 'Promedio Gral.', v: gradeStats.avg, c: [124, 58, 237] as [number, number, number] },
+      { l: 'Tasa Global', v: `${tasaGlobal}%`, c: [245, 158, 11] as [number, number, number] }
+    ];
+    metrics.forEach((m, idx) => {
+      const bx = margin + idx * (boxW + 3);
+      doc.setFillColor(248, 250, 252);
+      doc.roundedRect(bx, y, boxW, 25, 2, 2, 'F');
+      doc.setDrawColor(m.c[0], m.c[1], m.c[2]);
+      doc.setLineWidth(0.8);
+      doc.line(bx, y, bx + boxW, y);
+      doc.setFontSize(7.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 116, 139);
+      doc.text(m.l.toUpperCase(), bx + boxW / 2, y + 8, { align: 'center' });
+      doc.setFontSize(13);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(m.c[0], m.c[1], m.c[2]);
+      doc.text(m.v, bx + boxW / 2, y + 18, { align: 'center' });
+    });
+    y += 33;
+    doc.setFontSize(8.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(71, 85, 105);
+    doc.text(`Rango de Notas Registradas: Mínimo ${gradeStats.min} | Máximo ${gradeStats.max}`, margin, y);
+    // 2. Género y Notas
+    y += 12;
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(16, 44, 87); // UNSAAC Navy Blue
+    doc.text('2. DISTRIBUCIÓN POR GÉNERO Y CALIFICACIONES', margin, y);
+    y += 6;
+    autoTable(doc, {
+      startY: y,
+      head: [['Género', 'Postulantes', 'Porcentaje']],
+      body: sexData.chartData.map(item => [item.name, String(item.value), `${item.pct}%`]),
+      styles: { fontSize: 8.5, cellPadding: 3.5 },
+      headStyles: { fillColor: [16, 44, 87] }, // UNSAAC Navy Blue
+      theme: 'grid',
+      margin: { left: margin, right: margin }
+    });
+    y = (doc as any).lastAutoTable.finalY + 12;
+    if (y > pageHeight - 80) { doc.addPage(); y = margin; }
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(16, 44, 87); // UNSAAC Navy Blue
+    doc.text('3. DISTRIBUCIÓN DE NOTAS POR RANGOS', margin, y);
+    y += 6;
+    autoTable(doc, {
+      startY: y,
+      head: [['Rango de Notas', 'Postulantes', 'Ingresantes', 'Tasa de Ingreso']],
+      body: gradeStats.chartData.map(item => [
+        item.range,
+        String(item.postulantes),
+        String(item.ingresantes),
+        item.postulantes > 0 ? `${((item.ingresantes / item.postulantes) * 100).toFixed(1)}%` : '0.0%'
+      ]),
+      styles: { fontSize: 8.5, cellPadding: 3 },
+      headStyles: { fillColor: [16, 44, 87] }, // UNSAAC Navy Blue
+      theme: 'grid',
+      margin: { left: margin, right: margin }
+    });
+    // 4. Geografía
+    y = (doc as any).lastAutoTable.finalY + 12;
+    if (y > pageHeight - 90) { doc.addPage(); y = margin; }
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(16, 44, 87); // UNSAAC Navy Blue
+    doc.text('4. GEOGRAFÍA DE ORIGEN (TOP 5)', margin, y);
+    y += 6;
+    const geoDataRows = [];
+    const maxGeo = Math.max(geoDeptsData.length, geoProvsData.length, geoDistsData.length);
+    for (let i = 0; i < Math.min(maxGeo, 5); i++) {
+      geoDataRows.push([
+        geoDeptsData[i] ? `${geoDeptsData[i].name} (${geoDeptsData[i].value} / ${geoDeptsData[i].pct}%)` : '—',
+        geoProvsData[i] ? `${geoProvsData[i].name} (${geoProvsData[i].value} / ${geoProvsData[i].pct}%)` : '—',
+        geoDistsData[i] ? `${geoDistsData[i].name} (${geoDistsData[i].value} / ${geoDistsData[i].pct}%)` : '—'
+      ]);
+    }
+    autoTable(doc, {
+      startY: y,
+      head: [['Departamento', 'Provincia', 'Distrito']],
+      body: geoDataRows,
+      styles: { fontSize: 8, cellPadding: 3.5 },
+      headStyles: { fillColor: [16, 44, 87] }, // UNSAAC Navy Blue
+      theme: 'grid',
+      margin: { left: margin, right: margin }
+    });
+    // 5. Colegios con desglose por Áreas en el PDF
+    y = (doc as any).lastAutoTable.finalY + 12;
+    if (y > pageHeight - 90) { doc.addPage(); y = margin; }
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(16, 44, 87); // UNSAAC Navy Blue
+    doc.text('5. TOP 10 COLEGIOS DE PROCEDENCIA CON DESGLOSE POR ÁREA', margin, y);
+    y += 2;
+    doc.setDrawColor(212, 175, 55); // UNSAAC Gold
+    doc.line(margin, y, margin + 80, y);
+    y += 6;
+    // Estructurar filas de colegios + áreas
+    const schoolReportRows: any[] = [];
+    schoolOriginsData.slice(0, 10).forEach((school, idx) => {
+      // Fila principal del colegio
+      schoolReportRows.push([
+        String(idx + 1),
+        school.name,
+        String(school.total),
+        String(school.admitted),
+        `${school.ratio}%`,
+        'GLOBAL'
+      ]);
+      // Filas secundarias para cada área que tenga postulantes
+      Object.entries(school.areas)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .forEach(([area, stats]: [string, any]) => {
+          const areaRatio = stats.total > 0 ? ((stats.admitted / stats.total) * 100).toFixed(0) : '0';
+          schoolReportRows.push([
+            '',
+            `   ↳ Área Académica ${area}`,
+            String(stats.total),
+            String(stats.admitted),
+            `${areaRatio}%`,
+            'DETALLE'
+          ]);
+        });
+    });
+    autoTable(doc, {
+      startY: y,
+      head: [['N°', 'Colegio / Área', 'Postulantes', 'Ingresantes', 'Éxito', 'Tipo']],
+      body: schoolReportRows,
+      styles: { fontSize: 7.5, cellPadding: 2 },
+      headStyles: { fillColor: [16, 44, 87] }, // UNSAAC Navy Blue
+      columnStyles: {
+        0: { halign: 'center', cellWidth: 8 },
+        1: { cellWidth: 105 },
+        2: { halign: 'center', cellWidth: 20 },
+        3: { halign: 'center', cellWidth: 20 },
+        4: { halign: 'center', cellWidth: 15 }
+      },
+      // Filtrar la columna 'Tipo' y dar formato especial a las subfilas de desglose
+      didParseCell: (data) => {
+        if (data.column.index === 5) {
+          data.cell.text = []; // ocultar la columna tipo
+        }
+        if (data.section === 'body') {
+          const rowType = data.row.raw[5];
+          if (rowType === 'DETALLE') {
+            data.cell.styles.fillColor = [248, 250, 252]; // slate-50
+            data.cell.styles.textColor = [100, 116, 139]; // slate-500
+            if (data.column.index === 1) {
+              data.cell.styles.fontStyle = 'italic';
+            }
+          } else {
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.textColor = [16, 44, 87]; // UNSAAC Navy Blue
+          }
+        }
+      },
+      theme: 'grid',
+      margin: { left: margin, right: margin }
+    });
+    // 6. Detalle Completo por Escuelas Profesional
+    y = (doc as any).lastAutoTable.finalY + 12;
+    if (y > pageHeight - 50) { doc.addPage(); y = margin; }
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(16, 44, 87); // UNSAAC Navy Blue
+    doc.text('6. ANÁLISIS DE COMPETITIVIDAD Y SELECTIVIDAD POR ESCUELA', margin, y);
+    y += 8;
+    const areaGroups: Record<string, typeof coberturaRows> = {};
+    coberturaRows.forEach(item => {
+      const areaKey = item.area ? `Área ${item.area}` : 'SIN ÁREA';
+      if (!areaGroups[areaKey]) areaGroups[areaKey] = [];
+      areaGroups[areaKey].push(item);
+    });
+    Object.entries(areaGroups).sort(([a], [b]) => a.localeCompare(b)).forEach(([areaName, items]) => {
+      if (y > pageHeight - 40) { doc.addPage(); y = margin; }
+      doc.setFillColor(241, 245, 249);
+      doc.rect(margin, y - 3, pageWidth - margin * 2, 7, 'F');
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(16, 44, 87); // UNSAAC Navy Blue
+      doc.text(`${areaName} (${items.length} escuelas profesionales)`, margin + 3, y + 2);
+      y += 6;
+      autoTable(doc, {
+        startY: y,
+        head: [['Carrera Profesional', 'Cód.', 'Vacantes', 'Postulantes', 'Ingresantes', 'Ratio', 'Tasa']],
+        body: items.map(item => [
+          item.schoolName,
+          item.schoolCode,
+          String(item.vacancies),
+          String(item.applicants),
+          String(item.admitted),
+          item.ratio === '—' ? '—' : `${item.ratio} p/v`,
+          `${item.admissionRate}%`
+        ]),
+        styles: { fontSize: 7, cellPadding: 2 },
+        headStyles: { fillColor: [16, 44, 87] }, // UNSAAC Navy Blue
+        columnStyles: {
+          0: { fontStyle: 'bold', cellWidth: 65 },
+          1: { halign: 'center', cellWidth: 12 },
+          2: { halign: 'center', cellWidth: 18 },
+          3: { halign: 'center', cellWidth: 20 },
+          4: { halign: 'center', cellWidth: 20 },
+          5: { halign: 'center', cellWidth: 15 },
+          6: { halign: 'center', cellWidth: 18 }
+        },
+        theme: 'grid',
+        margin: { left: margin, right: margin }
+      });
+      y = (doc as any).lastAutoTable.finalY + 8;
+    });
+    // 7. Consolidado por Áreas
+    if (y > pageHeight - 65) { doc.addPage(); y = margin; }
+    y += 4;
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(16, 44, 87); // UNSAAC Navy Blue
+    doc.text('7. CONSOLIDADO RESUMEN POR ÁREAS ACADÉMICAS', margin, y);
+    y += 6;
+    const areaSummary = Object.entries(areaGroups).sort(([a], [b]) => a.localeCompare(b)).map(([areaName, items]) => {
+      const totalVac = items.reduce((sum, i) => sum + i.vacancies, 0);
+      const totalApp = items.reduce((sum, i) => sum + i.applicants, 0);
+      const totalAdm = items.reduce((sum, i) => sum + i.admitted, 0);
+      const ratio = totalVac > 0 ? (totalApp / totalVac).toFixed(1) : '—';
+      const tasa = totalApp > 0 ? ((totalAdm / totalApp) * 100).toFixed(1) : '0.0';
+      return [areaName, String(items.length), String(totalVac), String(totalApp), String(totalAdm), ratio, `${tasa}%`];
+    });
+    // Añadir total general
+    const grandVac = coberturaRows.reduce((sum, i) => sum + i.vacancies, 0);
+    const grandApp = coberturaRows.reduce((sum, i) => sum + i.applicants, 0);
+    const grandAdm = coberturaRows.reduce((sum, i) => sum + i.admitted, 0);
+    const grandRatio = grandVac > 0 ? (grandApp / grandVac).toFixed(1) : '—';
+    const grandTasa = grandApp > 0 ? ((grandAdm / grandApp) * 100).toFixed(1) : '0.0';
+    areaSummary.push(['TOTAL GENERAL', String(coberturaRows.length), String(grandVac), String(grandApp), String(grandAdm), grandRatio, `${grandTasa}%`]);
+    autoTable(doc, {
+      startY: y,
+      head: [['Área Académica', 'Carreras', 'Vacantes', 'Postulantes', 'Ingresantes', 'Ratio', 'Tasa Gral.']],
+      body: areaSummary,
+      styles: { fontSize: 8.5, cellPadding: 3.5 },
+      headStyles: { fillColor: [16, 44, 87] }, // UNSAAC Navy Blue
+      columnStyles: {
+        0: { fontStyle: 'bold' },
+        1: { halign: 'center' },
+        2: { halign: 'center' },
+        3: { halign: 'center' },
+        4: { halign: 'center' },
+        5: { halign: 'center' },
+        6: { halign: 'center' }
+      },
+      didParseCell: (data) => {
+        if (data.section === 'body' && data.row.index === areaSummary.length - 1) {
+          data.cell.styles.fillColor = [226, 232, 240];
+          data.cell.styles.fontStyle = 'bold';
+        }
+      },
+      theme: 'grid',
+      margin: { left: margin, right: margin }
+    });
+    // Paginación y pie de página en cada hoja
+    const totalPages = doc.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      doc.setPage(i);
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.3);
+      doc.line(margin, pageHeight - 12, pageWidth - margin, pageHeight - 12);
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(148, 163, 184);
+      doc.text('UNSAAC — Oficina de Dirección de Admisión | Módulo de Pre-Revisión Analítico', margin, pageHeight - 8);
+      doc.text(`Página ${i} de ${totalPages}`, pageWidth - margin, pageHeight - 8, { align: 'right' });
+    }
+    const safeName = modalidadName.replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ\s-]/g, '').replace(/\s+/g, '_');
+    doc.save(`Reporte_Competitividad_${safeName}_${new Date().getTime()}.pdf`);
+  };
 
   const handleApproveAndMigrate = async () => {
     if (isFinalized) {
@@ -2641,6 +2989,7 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
                       ) : (
                         schoolOriginsData.slice(0, 10).map((school, idx) => {
                           const pctPostulantes = normalizedCsvData.length > 0 ? ((school.total / normalizedCsvData.length) * 100).toFixed(1) : '0';
+                          const isExpanded = expandedSchool === school.name;
                           return (
                             <div key={idx} className="p-3.5 rounded-2xl border border-slate-100 bg-slate-50/40 hover:bg-slate-50 hover:border-slate-200 transition-all">
                               <div className="flex justify-between items-start gap-3">
@@ -2651,14 +3000,50 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
                                     <span>Ingresaron: <span className="text-emerald-600 font-extrabold">{school.admitted}</span></span>
                                   </div>
                                 </div>
-                                <span className={`shrink-0 text-[10px] font-black px-2 py-0.5 rounded-full uppercase ${
-                                  parseFloat(school.ratio) > 20 ? 'bg-emerald-100 text-emerald-700' :
-                                  parseFloat(school.ratio) > 5 ? 'bg-blue-100 text-blue-700' :
-                                  'bg-slate-100 text-slate-600'
-                                }`}>
-                                  {school.ratio}% de éxito
-                                </span>
+                                <div className="flex items-center gap-2">
+                                  <span className={`shrink-0 text-[10px] font-black px-2 py-0.5 rounded-full uppercase ${
+                                    parseFloat(school.ratio) > 20 ? 'bg-emerald-100 text-emerald-700' :
+                                    parseFloat(school.ratio) > 5 ? 'bg-blue-100 text-blue-700' :
+                                    'bg-slate-100 text-slate-600'
+                                  }`}>
+                                    {school.ratio}% éxito
+                                  </span>
+                                  <button
+                                    onClick={() => setExpandedSchool(isExpanded ? null : school.name)}
+                                    className="p-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-600 transition-colors flex items-center justify-center"
+                                    title="Ver detalle por áreas"
+                                  >
+                                    <span className="material-symbols-outlined text-[16px] pointer-events-none">
+                                      {isExpanded ? 'expand_less' : 'expand_more'}
+                                    </span>
+                                  </button>
+                                </div>
                               </div>
+                              {/* Desglose inline por áreas */}
+                              {isExpanded && (
+                                <div className="mt-3 p-3 bg-white rounded-xl border border-slate-150 text-[10px] space-y-1.5 shadow-inner">
+                                  <div className="grid grid-cols-4 text-center font-black text-slate-500 uppercase tracking-wider border-b border-slate-100 pb-1">
+                                    <div>Área Académica</div>
+                                    <div>Postulantes</div>
+                                    <div>Ingresantes</div>
+                                    <div>Tasa de Éxito</div>
+                                  </div>
+                                  {Object.entries(school.areas)
+                                    .sort(([a], [b]) => a.localeCompare(b))
+                                    .map(([areaName, areaStats]: [string, any]) => (
+                                      <div key={areaName} className="grid grid-cols-4 text-center items-center py-1 border-b border-slate-50 last:border-b-0">
+                                        <div className="font-bold text-slate-700 uppercase">Área {areaName}</div>
+                                        <div className="font-bold text-slate-600">{areaStats.total}</div>
+                                        <div className="font-black text-emerald-600">{areaStats.admitted}</div>
+                                        <div>
+                                          <span className="bg-slate-100 text-slate-700 font-extrabold px-1.5 py-0.5 rounded text-[9px]">
+                                            {areaStats.total > 0 ? ((areaStats.admitted / areaStats.total) * 100).toFixed(0) : 0}%
+                                          </span>
+                                        </div>
+                                      </div>
+                                    ))}
+                                </div>
+                              )}
                             </div>
                           );
                         })
@@ -2672,6 +3057,18 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
                       </p>
                     </div>
                   </div>
+                </div>
+
+                {/* Botón Generar Reporte PDF */}
+                <div className="flex justify-end mb-4">
+                  <button
+                    onClick={generateCompetitivityReport}
+                    disabled={normalizedCsvData.length === 0}
+                    className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white font-black text-xs uppercase tracking-wider rounded-xl flex items-center gap-2 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">picture_as_pdf</span>
+                    Generar Reporte PDF
+                  </button>
                 </div>
 
                 {/* Demanda y Selectividad por Escuela */}
