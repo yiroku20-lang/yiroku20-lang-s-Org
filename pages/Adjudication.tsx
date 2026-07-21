@@ -56,6 +56,76 @@ const ESCUELAS_POR_AREA = {
   ],
 };
 
+interface GroupedProcesses {
+  [year: string]: {
+    [semester: string]: string[];
+  };
+}
+
+const getGroupedProcesses = (processList: string[], allModalidades: any[]): GroupedProcesses => {
+  const groups: GroupedProcesses = {};
+  
+  const normName = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[\s_-]+/g, " ").trim();
+  
+  processList.forEach((name) => {
+    const targetNorm = normName(name);
+    
+    // Try to find matching modality from the database to get actual year and semester
+    const matched = allModalidades.find((m) => {
+      const mNorm = normName(m.nombre);
+      return mNorm === targetNorm || mNorm.includes(targetNorm) || targetNorm.includes(mNorm);
+    });
+    
+    let year = "Otros Años";
+    let semester = "Otros";
+    
+    if (matched) {
+      if (matched.cv_cuadros_anuales) {
+        year = matched.cv_cuadros_anuales.anio.toString();
+      }
+      if (matched.semestre) {
+        semester = `Proceso ${matched.semestre}`;
+      }
+    } else {
+      // Fallback to regex
+      const yearMatch = name.match(/\b(20\d\d)\b/);
+      if (yearMatch) {
+        year = yearMatch[1];
+      }
+      
+      const semMatch = name.match(/\b(I|II|III|IV)\b/);
+      if (semMatch) {
+        semester = `Proceso ${semMatch[1]}`;
+      } else if (name.toUpperCase().includes("PRIMERA OPCION") || name.toUpperCase().includes("PRIMERA OPCIÓN")) {
+        semester = "Primera Opción";
+      }
+    }
+    
+    if (!groups[year]) groups[year] = {};
+    if (!groups[year][semester]) groups[year][semester] = [];
+    groups[year][semester].push(name);
+  });
+  return groups;
+};
+
+const sortYears = (a: string, b: string) => {
+  if (a === "Otros Años") return 1;
+  if (b === "Otros Años") return -1;
+  return b.localeCompare(a);
+};
+
+const sortSemesters = (a: string, b: string) => {
+  const order: Record<string, number> = {
+    "Proceso I": 1,
+    "Proceso II": 2,
+    "Proceso III": 3,
+    "Proceso IV": 4,
+    "Primera Opción": 5,
+    "Otros": 10,
+  };
+  return (order[a] || 99) - (order[b] || 99);
+};
+
 export default function Adjudication() {
   const [currentView, setCurrentView] = useState<"list" | "detail">("list");
   const [activeTab, setActiveTab] = useState<"adjudication" | "attendance">(
@@ -67,6 +137,7 @@ export default function Adjudication() {
   const [anios, setAnios] = useState<CVCuadroAnual[]>([]);
   const [selectedAnioId, setSelectedAnioId] = useState<string>("");
   const [modalidades, setModalidades] = useState<CVModalidad[]>([]);
+  const [allModalidadesDb, setAllModalidadesDb] = useState<any[]>([]);
   const [selectedModalidadId, setSelectedModalidadId] = useState<string>("");
 
   const [activeProcessName, setActiveProcessName] = useState<string>("");
@@ -348,6 +419,14 @@ export default function Adjudication() {
 
   const fetchProcesos = async () => {
     try {
+      // Fetch all modalities with their related cuadros
+      const { data: modalitiesData } = await supabase
+        .from("cv_modalidades")
+        .select("id, nombre, cuadro_id, semestre, cv_cuadros_anuales(anio, estado)");
+      if (modalitiesData) {
+        setAllModalidadesDb(modalitiesData);
+      }
+
       const { data: vData } = await supabase
         .from("adjudicacion_vacantes")
         .select("modalidad");
@@ -1796,34 +1875,9 @@ ALTER TABLE adjudicacion_ranking DISABLE ROW LEVEL SECURITY;
             Cargando procesos...
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {procesos.map((p, idx) => (
-              <div
-                key={idx}
-                onClick={() => {
-                  setActiveProcessName(p);
-                  setCurrentView("detail");
-                }}
-                className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm hover:shadow-md cursor-pointer transition-all hover:-translate-y-1 group"
-              >
-                <div className="flex flex-col h-full">
-                  <span className="bg-blue-50 text-blue-700 text-[10px] font-black tracking-widest uppercase px-3 py-1 rounded-lg w-fit mb-4">
-                    Adjudicación
-                  </span>
-                  <h3 className="font-black text-slate-900 text-lg mb-2 group-hover:text-primary transition-colors">
-                    {p}
-                  </h3>
-                  <p className="text-sm font-bold text-slate-400 mt-auto flex items-center justify-between pt-4">
-                    Tocar para gestionar
-                    <span className="material-symbols-outlined text-primary opacity-0 group-hover:opacity-100 transition-opacity">
-                      arrow_forward
-                    </span>
-                  </p>
-                </div>
-              </div>
-            ))}
-            {procesos.length === 0 && (
-              <div className="col-span-full text-center py-20 bg-white border border-slate-200 border-dashed rounded-3xl">
+          <div className="space-y-10">
+            {procesos.length === 0 ? (
+              <div className="text-center py-20 bg-white border border-slate-200 border-dashed rounded-3xl">
                 <span className="material-symbols-outlined text-4xl text-slate-300 mb-2">
                   inbox
                 </span>
@@ -1831,6 +1885,65 @@ ALTER TABLE adjudicacion_ranking DISABLE ROW LEVEL SECURITY;
                   No hay procesos de adjudicación creados aún.
                 </p>
               </div>
+            ) : (
+              (() => {
+                const grouped = getGroupedProcesses(procesos, allModalidadesDb);
+                return Object.keys(grouped)
+                  .sort(sortYears)
+                  .map((year) => (
+                    <div key={year} className="bg-white p-8 rounded-3xl border border-slate-200/85 shadow-sm space-y-6">
+                      <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
+                        <span className="material-symbols-outlined text-primary text-2xl">
+                          calendar_today
+                        </span>
+                        <h2 className="text-xl font-black text-slate-900 tracking-tight">
+                          Año Académico: {year}
+                        </h2>
+                      </div>
+                      
+                      <div className="space-y-6">
+                        {Object.keys(grouped[year])
+                          .sort(sortSemesters)
+                          .map((semester) => (
+                            <div key={semester} className="space-y-3">
+                              <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+                                {semester}
+                              </h3>
+                              
+                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {grouped[year][semester].map((p, idx) => (
+                                  <div
+                                    key={idx}
+                                    onClick={() => {
+                                      setActiveProcessName(p);
+                                      setCurrentView("detail");
+                                    }}
+                                    className="bg-slate-50/50 hover:bg-white p-5 rounded-2xl border border-slate-200 hover:border-primary/40 shadow-sm hover:shadow-md cursor-pointer transition-all hover:-translate-y-0.5 group"
+                                  >
+                                    <div className="flex flex-col h-full">
+                                      <span className="bg-blue-50 text-blue-700 text-[9px] font-black tracking-widest uppercase px-2.5 py-1 rounded-md w-fit mb-3">
+                                        Adjudicación
+                                      </span>
+                                      <h4 className="font-extrabold text-slate-800 text-base mb-1 group-hover:text-primary transition-colors leading-snug">
+                                        {p}
+                                      </h4>
+                                      <p className="text-xs font-bold text-slate-400 mt-auto flex items-center justify-between pt-3">
+                                        Gestionar
+                                        <span className="material-symbols-outlined text-primary text-sm opacity-0 group-hover:opacity-100 transition-opacity">
+                                          arrow_forward
+                                        </span>
+                                      </p>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  ));
+              })()
             )}
           </div>
         )}

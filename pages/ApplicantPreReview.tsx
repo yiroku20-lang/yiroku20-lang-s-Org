@@ -210,9 +210,65 @@ interface ApplicantPreReviewProps {
   notify?: (msg: string, type?: 'success'|'error'|'warning'|'info') => void;
 }
 
+interface GroupedPreRevisions {
+  [year: string]: {
+    [semester: string]: {
+      id: string;
+      modality: CVModalidad;
+      cuadro?: CVCuadroAnual;
+    }[];
+  };
+}
+
+const sortYears = (a: string, b: string) => {
+  if (a === "Otros Años") return 1;
+  if (b === "Otros Años") return -1;
+  return b.localeCompare(a);
+};
+
+const sortSemesters = (a: string, b: string) => {
+  const order: Record<string, number> = {
+    "Proceso I": 1,
+    "Proceso II": 2,
+    "Proceso III": 3,
+    "Proceso IV": 4,
+    "Primera Opción": 5,
+    "Otros": 10,
+  };
+  return (order[a] || 99) - (order[b] || 99);
+};
+
+const getGroupedPreRevisions = (
+  ids: string[],
+  allModalidades: CVModalidad[],
+  cuadros: CVCuadroAnual[]
+): GroupedPreRevisions => {
+  const groups: GroupedPreRevisions = {};
+  
+  ids.forEach(id => {
+    const modality = allModalidades.find(m => m.id === id);
+    if (!modality) return;
+    const cuadro = cuadros.find(c => c.id === modality.cuadro_id);
+    
+    const year = cuadro ? cuadro.anio.toString() : "Otros Años";
+    const semester = modality.semestre ? `Proceso ${modality.semestre}` : "Otros";
+    
+    if (!groups[year]) {
+      groups[year] = {};
+    }
+    if (!groups[year][semester]) {
+      groups[year][semester] = [];
+    }
+    groups[year][semester].push({ id, modality, cuadro });
+  });
+  
+  return groups;
+};
+
 export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, notify }) => {
   const [cuadros, setCuadros] = useState<CVCuadroAnual[]>([]);
   const [modalidades, setModalidades] = useState<CVModalidad[]>([]);
+  const [showUploadModal, setShowUploadModal] = useState(false);
   const [escuelas, setEscuelas] = useState<CVEscuela[]>([]);
   const [vacantes, setVacantes] = useState<CVVacante[]>([]);
   const [adjudicacionVacantes, setAdjudicacionVacantes] = useState<any[]>([]);
@@ -530,6 +586,7 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
     const processData = async (dataToProcess: any[]) => {
       setCsvData(dataToProcess);
       setIsLoaded(true);
+      setShowUploadModal(false);
       setActiveTab('Cobertura');
 
       if (selectedModalidad) {
@@ -2037,226 +2094,316 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
           </div>
         </div>
       )}
-      <div className="p-6 border-b border-slate-200 bg-white">
-        {isLoaded && (
-          <div className="mb-4">
-            <button
-              onClick={() => {
-                setSelectedModalidad('');
-                clearData();
-              }}
-              className="flex items-center gap-2 text-slate-500 hover:text-slate-900 font-bold text-sm transition-colors"
-            >
-              <span className="material-symbols-outlined text-[18px]">
-                arrow_back
-              </span>
-              Volver a la lista
-            </button>
-          </div>
+      <div className="p-6 border-b border-slate-200 bg-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          {isLoaded && (
+            <div className="mb-2">
+              <button
+                onClick={() => {
+                  setSelectedModalidad('');
+                  clearData();
+                }}
+                className="flex items-center gap-2 text-slate-500 hover:text-slate-900 font-bold text-sm transition-colors"
+              >
+                <span className="material-symbols-outlined text-[18px]">
+                  arrow_back
+                </span>
+                Volver a la lista
+              </button>
+            </div>
+          )}
+          <h1 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">
+            {isLoaded && currentModalityName ? `PRE-REVISIÓN: ${currentModalityName}` : 'Pre-revisión de Ingresantes'}
+          </h1>
+          <p className="text-slate-500 text-sm mt-1 font-medium">Valide la cobertura de vacantes y cargue resultados antes de su migración oficial.</p>
+        </div>
+        
+        {!isLoaded && (
+          <button
+            onClick={() => {
+              setShowUploadModal(true);
+              if (cuadros.length > 0 && !selectedCuadro) {
+                const approved = cuadros.find(c => c.estado === 'Aprobado');
+                if (approved) setSelectedCuadro(approved.id);
+              }
+            }}
+            className="px-5 py-2.5 bg-primary hover:bg-primary-dark text-white rounded-xl font-black text-xs uppercase tracking-wider flex items-center gap-2 shadow-lg shadow-primary/20 hover:scale-[1.02] transition-all cursor-pointer w-fit shrink-0 self-start sm:self-center"
+          >
+            <span className="material-symbols-outlined text-sm">add_circle</span>
+            Nueva Pre-Revisión
+          </button>
         )}
-        <h1 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">
-          {isLoaded && currentModalityName ? `PRE-REVISIÓN: ${currentModalityName}` : 'Pre-revisión de Ingresantes'}
-        </h1>
-        <p className="text-slate-500 text-sm mt-1">Valide la cobertura de vacantes y cargue resultados antes de su migración oficial.</p>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
         
-        {/* Setup Section (Hidden if loaded) */}
+        {/* Main List Section (Hidden if loaded) */}
         {!isLoaded && (
-          <div className="max-w-3xl mx-auto space-y-6">
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-6">
-            <h2 className="text-lg font-black text-slate-800 uppercase tracking-tight border-b border-slate-100 pb-2">1. Configuración de Carga</h2>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Año (Cuadro Anual)</label>
-                <select 
-                  className="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-sm"
-                  value={selectedCuadro}
-                  onChange={(e) => {
-                    setSelectedCuadro(e.target.value);
-                    setSelectedSemestre('');
-                    setSelectedModalidad('');
+          <div className="space-y-8">
+            {savedModalidadIds.length === 0 ? (
+              <div className="text-center py-20 bg-white border border-slate-200 border-dashed rounded-3xl max-w-3xl mx-auto space-y-4">
+                <span className="material-symbols-outlined text-5xl text-slate-300">
+                  find_in_page
+                </span>
+                <h3 className="text-lg font-black text-slate-700 uppercase tracking-tight">Sin Pre-revisiones Activas</h3>
+                <p className="text-slate-500 font-medium text-xs max-w-md mx-auto leading-relaxed">
+                  No hay pre-revisiones de resultados guardadas en el sistema. Comience cargando una nueva pre-revisión de postulantes.
+                </p>
+                <button
+                  onClick={() => {
+                    setShowUploadModal(true);
+                    if (cuadros.length > 0 && !selectedCuadro) {
+                      const approved = cuadros.find(c => c.estado === 'Aprobado');
+                      if (approved) setSelectedCuadro(approved.id);
+                    }
                   }}
+                  className="px-5 py-2.5 bg-primary hover:bg-primary-dark text-white rounded-xl font-black text-xs uppercase tracking-wider inline-flex items-center gap-2 shadow-lg shadow-primary/20 hover:scale-105 transition-all cursor-pointer"
                 >
-                  <option value="">Seleccione el año</option>
-                  {cuadros.filter(c => c.estado === 'Aprobado').map(c => (
-                    <option key={c.id} value={c.id}>{c.anio} - {c.estado}</option>
-                  ))}
-                </select>
+                  <span className="material-symbols-outlined text-sm">upload_file</span>
+                  Cargar Nueva Pre-Revisión
+                </button>
               </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Semestre</label>
-                <select 
-                  className="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-sm disabled:bg-slate-50 disabled:text-slate-400"
-                  value={selectedSemestre}
-                  onChange={(e) => {
-                    setSelectedSemestre(e.target.value);
-                    setSelectedModalidad('');
-                  }}
-                  disabled={!selectedCuadro}
-                >
-                  <option value="">Seleccione el semestre</option>
-                  {availableSemesters.map(s => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-              </div>
-              
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Modalidad</label>
-                <select 
-                  className="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-sm disabled:bg-slate-50 disabled:text-slate-400"
-                  value={selectedModalidad}
-                  onChange={(e) => setSelectedModalidad(e.target.value)}
-                  disabled={!selectedSemestre}
-                >
-                  <option value="">Seleccione una modalidad</option>
-                  {filteredModalidades.map(m => {
-                    const hasSaved = savedModalidadIds.includes(m.id);
-                    return (
-                      <option key={m.id} value={m.id}>
-                        {m.nombre}{hasSaved ? ' 📝 [Guardada]' : ''}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-            </div>
-
-            {selectedModalidad && (
-              <div className="space-y-5">
-                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
-                  <div className="flex gap-3">
-                    <span className="material-symbols-outlined text-primary text-[22px] shrink-0">info_outline</span>
-                    <div className="space-y-1">
-                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Estructura del archivo CSV / Excel</h4>
-                      <p className="text-[11px] text-slate-500 font-semibold leading-relaxed">
-                        El sistema procesa y normaliza las columnas de forma flexible (mayúsculas/minúsculas, guiones o espacios). Para que los postulantes se lean correctamente, el archivo debe cumplir con la siguiente estructura:
-                      </p>
+            ) : (
+              (() => {
+                const grouped = getGroupedPreRevisions(savedModalidadIds, allModalidades, cuadros);
+                return Object.keys(grouped)
+                  .sort(sortYears)
+                  .map((year) => (
+                    <div key={year} className="bg-white p-8 rounded-3xl border border-slate-200/85 shadow-sm space-y-6 max-w-4xl mx-auto">
+                      <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
+                        <span className="material-symbols-outlined text-amber-500 text-2xl">
+                          calendar_today
+                        </span>
+                        <h2 className="text-xl font-black text-slate-900 tracking-tight">
+                          Año Académico: {year}
+                        </h2>
+                      </div>
+                      
+                      <div className="space-y-6">
+                        {Object.keys(grouped[year])
+                          .sort(sortSemesters)
+                          .map((semester) => (
+                            <div key={semester} className="space-y-3">
+                              <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                                {semester}
+                              </h3>
+                              
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {grouped[year][semester].map(({ id, modality, cuadro }) => {
+                                  const isSelected = selectedModalidad === id;
+                                  return (
+                                    <button
+                                      key={id}
+                                      onClick={() => {
+                                        setSelectedCuadro(modality.cuadro_id);
+                                        setSelectedSemestre(modality.semestre);
+                                        setSelectedModalidad(modality.id);
+                                      }}
+                                      className={`text-left p-5 rounded-2xl border transition-all flex flex-col justify-between h-full gap-4 hover:border-amber-500 hover:shadow-md ${
+                                        isSelected 
+                                          ? 'border-primary bg-blue-50/50' 
+                                          : 'border-slate-200 bg-slate-50/50 hover:bg-white'
+                                      } group`}
+                                    >
+                                      <div>
+                                        <div className="flex items-center justify-between gap-2">
+                                          <span className="inline-block bg-slate-200 text-slate-700 font-extrabold text-[9px] px-2.5 py-1 rounded-md uppercase tracking-wider">
+                                            Año {cuadro ? cuadro.anio : '—'} • Sem. {modality.semestre}
+                                          </span>
+                                          <span className="flex items-center gap-1 text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md uppercase tracking-widest">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Guardado
+                                          </span>
+                                        </div>
+                                        <h3 className="text-base font-black text-slate-800 mt-2.5 line-clamp-2 leading-snug group-hover:text-primary transition-colors">
+                                          {modality.nombre}
+                                        </h3>
+                                      </div>
+                                      <div className="flex items-center gap-1 text-primary text-xs font-black uppercase tracking-widest mt-1">
+                                        <span className="material-symbols-outlined text-[16px]">arrow_circle_right</span>
+                                        Ingresar a pre-revisión
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ))}
+                      </div>
                     </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-[11px] bg-white p-4 rounded-xl border border-slate-100 font-semibold text-slate-600">
-                    <div className="space-y-1.5">
-                      <p className="font-bold text-slate-800 uppercase tracking-wide text-[10px] flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span> Campos Obligatorios:
-                      </p>
-                      <ul className="list-disc list-inside space-y-1 pl-1 text-slate-500">
-                        <li><span className="font-bold font-mono text-[10px] text-primary">DNI</span> <span className="text-slate-400">(NroDocumento, DNI, alumno)</span></li>
-                        <li><span className="font-bold font-mono text-[10px] text-primary">POSTULANTE</span> <span className="text-slate-400">(Nombre, Nombre completo)</span></li>
-                        <li><span className="font-bold font-mono text-[10px] text-primary">NOTA</span> <span className="text-slate-400">(Puntaje, Nota)</span></li>
-                        <li><span className="font-bold font-mono text-[10px] text-primary">POS</span> <span className="text-slate-400">(Posicion, Puesto, OMERITO)</span></li>
-                        <li><span className="font-bold font-mono text-[10px] text-primary">ESCUELA1</span> <span className="text-slate-400">(Carrera a la que postula)</span></li>
-                      </ul>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <p className="font-bold text-slate-800 uppercase tracking-wide text-[10px] flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span> Campos de Ingreso y Datos Opcionales:
-                      </p>
-                      <ul className="list-disc list-inside space-y-1 pl-1 text-slate-500">
-                        <li><span className="font-bold font-mono text-[10px] text-primary">ESTADO</span> <span className="text-slate-400">(Observación: 'INGRESANTE' para vacantes cubiertas)</span></li>
-                        <li><span className="font-bold font-mono text-[10px] text-primary">COD_CARRERA</span> <span className="text-slate-400">(Código de escuela de ingreso)</span></li>
-                        <li><span className="font-bold font-mono text-[10px] text-primary">GRUPO</span> <span className="text-slate-400">(Área, Grupo de examen)</span></li>
-                        <li><span className="font-bold font-mono text-[10px] text-primary">UBIGEO</span> <span className="text-slate-400">(6 dígitos)</span>, Sexo, Edad, FechaNacimiento</li>
-                      </ul>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={downloadXlsxTemplate}
-                      className="px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center gap-2 shadow-md hover:shadow-lg active:scale-95"
-                    >
-                      <span className="material-symbols-outlined text-[16px]">download</span>
-                      Descargar Plantilla Excel (.XLSX)
-                    </button>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Archivo CSV de Resultados</label>
-                  {isFinalized ? (
-                    <div className="bg-slate-50 border-2 border-slate-200 rounded-2xl p-8 text-center flex flex-col items-center justify-center">
-                      <span className="material-symbols-outlined text-4xl text-emerald-600 mb-2">verified_user</span>
-                      <span className="text-sm font-black text-slate-700 uppercase tracking-wide">Proceso Aprobado y Migrado</span>
-                      <p className="text-xs text-slate-500 mt-1.5 max-w-xs leading-relaxed font-semibold">
-                        Este proceso ha sido cerrado de forma definitiva. Toda la información ha sido migrada con éxito a participantes y se encuentra congelada.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="border-2 border-dashed border-slate-300 rounded-2xl p-8 text-center hover:bg-slate-50 transition-colors">
-                      <input 
-                        type="file" 
-                        accept=".csv"
-                        className="hidden"
-                        id="csv-upload"
-                        ref={fileInputRef}
-                        onChange={handleFileUpload}
-                      />
-                      <label htmlFor="csv-upload" className="cursor-pointer flex flex-col items-center">
-                        <span className="material-symbols-outlined text-4xl text-slate-400 mb-2">upload_file</span>
-                        <span className="text-sm font-bold text-primary">Haz clic para subir el archivo CSV</span>
-                        <span className="text-xs text-slate-500 mt-1">o arrastra y suelta aquí</span>
-                      </label>
-                    </div>
-                  )}
-                </div>
-              </div>
+                  ));
+              })()
             )}
           </div>
+        )}
 
-          {/* List of active pre-revisions */}
-          {savedModalidadIds.length > 0 && (
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
-              <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
-                <span className="material-symbols-outlined text-amber-500">list_alt</span>
-                <h2 className="text-lg font-black text-slate-800 uppercase tracking-tight">Pre-revisiones guardadas activas ({savedModalidadIds.length})</h2>
-              </div>
-              <p className="text-slate-500 text-xs">Las siguientes modalidades ya tienen una pre-revisión de resultados cargada y guardada. Haga clic en cualquiera de ellas para ingresar y revisarla directamente.</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[300px] overflow-y-auto pr-1">
-                {savedModalidadIds.map(id => {
-                  const modality = allModalidades.find(m => m.id === id);
-                  if (!modality) return null;
-                  const cuadro = cuadros.find(c => c.id === modality.cuadro_id);
-                  const isSelected = selectedModalidad === id;
-                  return (
-                    <button
-                      key={id}
-                      onClick={() => {
-                        setSelectedCuadro(modality.cuadro_id);
-                        setSelectedSemestre(modality.semestre);
-                        setSelectedModalidad(modality.id);
+        {/* Modal Overlay for upload settings */}
+        {showUploadModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
+            <div className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl p-8 border border-slate-150 relative max-h-[90vh] overflow-y-auto my-8">
+              {/* Close Button */}
+              <button
+                onClick={() => setShowUploadModal(false)}
+                className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 cursor-pointer size-8 rounded-full flex items-center justify-center hover:bg-slate-100 transition-colors"
+              >
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+              
+              <h2 className="text-lg font-black text-slate-900 uppercase tracking-tight border-b border-slate-100 pb-3 pr-8 flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary">upload_file</span>
+                Nueva Carga de Pre-Revisión
+              </h2>
+              <p className="text-slate-500 font-bold text-xs mt-2 leading-relaxed">
+                Configure los parámetros del año y semestre académico para habilitar la carga de postulantes en formato CSV.
+              </p>
+
+              <div className="mt-6 space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Año (Cuadro Anual)</label>
+                    <select 
+                      className="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-xs font-bold text-slate-700 bg-slate-50"
+                      value={selectedCuadro}
+                      onChange={(e) => {
+                        setSelectedCuadro(e.target.value);
+                        setSelectedSemestre('');
+                        setSelectedModalidad('');
                       }}
-                      className={`text-left p-4 rounded-xl border transition-all flex flex-col justify-between h-full gap-2 hover:border-amber-500 hover:shadow-sm ${isSelected ? 'border-primary bg-blue-50/50' : 'border-slate-100 bg-slate-50/50'}`}
                     >
-                      <div>
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="inline-block bg-slate-200 text-slate-700 font-bold text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider">
-                            Año {cuadro ? cuadro.anio : '—'} • Sem. {modality.semestre}
-                          </span>
-                          <span className="flex items-center gap-0.5 text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Guardado
-                          </span>
+                      <option value="">Seleccione el año</option>
+                      {cuadros.filter(c => c.estado === 'Aprobado').map(c => (
+                        <option key={c.id} value={c.id}>{c.anio} - {c.estado}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Semestre</label>
+                    <select 
+                      className="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-xs font-bold text-slate-700 bg-slate-50 disabled:bg-slate-50 disabled:text-slate-400"
+                      value={selectedSemestre}
+                      onChange={(e) => {
+                        setSelectedSemestre(e.target.value);
+                        setSelectedModalidad('');
+                      }}
+                      disabled={!selectedCuadro}
+                    >
+                      <option value="">Seleccione el semestre</option>
+                      {availableSemesters.map(s => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Modalidad</label>
+                    <select 
+                      className="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-xs font-bold text-slate-700 bg-slate-50 disabled:bg-slate-50 disabled:text-slate-400"
+                      value={selectedModalidad}
+                      onChange={(e) => setSelectedModalidad(e.target.value)}
+                      disabled={!selectedSemestre}
+                    >
+                      <option value="">Seleccione una modalidad</option>
+                      {filteredModalidades.map(m => {
+                        const hasSaved = savedModalidadIds.includes(m.id);
+                        return (
+                          <option key={m.id} value={m.id}>
+                            {m.nombre}{hasSaved ? ' 📝 [Guardada]' : ''}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                </div>
+
+                {selectedModalidad && (
+                  <div className="space-y-5">
+                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
+                      <div className="flex gap-3">
+                        <span className="material-symbols-outlined text-primary text-[22px] shrink-0">info_outline</span>
+                        <div className="space-y-1">
+                          <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Estructura del archivo CSV / Excel</h4>
+                          <p className="text-[11px] text-slate-500 font-semibold leading-relaxed">
+                            El sistema procesa y normaliza las columnas de forma flexible (mayúsculas/minúsculas, guiones o espacios). Para que los postulantes se lean correctamente, el archivo debe cumplir con la siguiente estructura:
+                          </p>
                         </div>
-                        <h3 className="text-sm font-bold text-slate-800 mt-2 line-clamp-2 leading-snug">{modality.nombre}</h3>
                       </div>
-                      <div className="flex items-center gap-1 text-primary text-xs font-bold mt-1 uppercase tracking-wider">
-                        <span className="material-symbols-outlined text-[16px]">arrow_circle_right</span>
-                        Ingresar a pre-revisión
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-[11px] bg-white p-4 rounded-xl border border-slate-100 font-semibold text-slate-600">
+                        <div className="space-y-1.5">
+                          <p className="font-bold text-slate-800 uppercase tracking-wide text-[10px] flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span> Campos Obligatorios:
+                          </p>
+                          <ul className="list-disc list-inside space-y-1 pl-1 text-slate-500">
+                            <li><span className="font-bold font-mono text-[10px] text-primary">DNI</span> <span className="text-slate-400">(NroDocumento, DNI, alumno)</span></li>
+                            <li><span className="font-bold font-mono text-[10px] text-primary">POSTULANTE</span> <span className="text-slate-400">(Nombre, Nombre completo)</span></li>
+                            <li><span className="font-bold font-mono text-[10px] text-primary">NOTA</span> <span className="text-slate-400">(Puntaje, Nota)</span></li>
+                            <li><span className="font-bold font-mono text-[10px] text-primary">POS</span> <span className="text-slate-400">(Posicion, Puesto, OMERITO)</span></li>
+                            <li><span className="font-bold font-mono text-[10px] text-primary">ESCUELA1</span> <span className="text-slate-400">(Carrera a la que postula)</span></li>
+                          </ul>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <p className="font-bold text-slate-800 uppercase tracking-wide text-[10px] flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span> Campos de Ingreso y Datos Opcionales:
+                          </p>
+                          <ul className="list-disc list-inside space-y-1 pl-1 text-slate-500">
+                            <li><span className="font-bold font-mono text-[10px] text-primary">ESTADO</span> <span className="text-slate-400">(Observación: 'INGRESANTE' para vacantes cubiertas)</span></li>
+                            <li><span className="font-bold font-mono text-[10px] text-primary">COD_CARRERA</span> <span className="text-slate-400">(Código de escuela de ingreso)</span></li>
+                            <li><span className="font-bold font-mono text-[10px] text-primary">GRUPO</span> <span className="text-slate-400">(Área, Grupo de examen)</span></li>
+                            <li><span className="font-bold font-mono text-[10px] text-primary">UBIGEO</span> <span className="text-slate-400">(6 dígitos)</span>, Sexo, Edad, FechaNacimiento</li>
+                          </ul>
+                        </div>
                       </div>
-                    </button>
-                  );
-                })}
+
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={downloadXlsxTemplate}
+                          className="px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center gap-2 shadow-md hover:shadow-lg active:scale-95 cursor-pointer"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">download</span>
+                          Descargar Plantilla Excel (.XLSX)
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Archivo CSV de Resultados</label>
+                      {isFinalized ? (
+                        <div className="bg-slate-50 border-2 border-slate-200 rounded-2xl p-8 text-center flex flex-col items-center justify-center">
+                          <span className="material-symbols-outlined text-4xl text-emerald-600 mb-2">verified_user</span>
+                          <span className="text-sm font-black text-slate-700 uppercase tracking-wide">Proceso Aprobado y Migrado</span>
+                          <p className="text-xs text-slate-500 mt-1.5 max-w-xs leading-relaxed font-semibold">
+                            Este proceso ha sido cerrado de forma definitiva. Toda la información ha sido migrada con éxito a participantes y se encuentra congelada.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="border-2 border-dashed border-slate-300 hover:border-primary rounded-2xl p-8 text-center hover:bg-slate-50/50 transition-colors">
+                          <input 
+                            type="file" 
+                            accept=".csv"
+                            className="hidden"
+                            id="csv-upload"
+                            ref={fileInputRef}
+                            onChange={(e) => {
+                              handleFileUpload(e);
+                            }}
+                          />
+                          <label htmlFor="csv-upload" className="cursor-pointer flex flex-col items-center">
+                            <span className="material-symbols-outlined text-4xl text-slate-400 mb-2">upload_file</span>
+                            <span className="text-sm font-black text-primary uppercase tracking-wider text-xs">Haz clic para subir el archivo CSV</span>
+                            <span className="text-[11px] font-bold text-slate-400 mt-1">Soporta codificación UTF-8 / ISO-8859-1</span>
+                          </label>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
-          )}
-        </div>
-      )}
+          </div>
+        )}
 
         {/* Results Section */}
         {isLoaded && (
