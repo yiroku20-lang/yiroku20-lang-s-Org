@@ -75,11 +75,21 @@ const isAdmittedRow = (row: any): boolean => {
   const val = getRowValue(row, [
     'OBSERVACION', 'Observacion', 'observacion', 
     'OBSERVACIONES', 'observaciones', 
-    'ESTADO', 'estado', 'resultado', 'RESULTADO'
+    'ESTADO', 'estado', 'resultado', 'RESULTADO',
+    'CONDICION', 'condicion', 'CONDICIÓN', 'condición'
   ]).toUpperCase();
   
-  // Regla de descarte para evitar falsos positivos con "NO INGRESA", "NO INGRESANTE", "NO INGRESO", "NO ADMITIDO", "NO_INGRESA"
-  if (val.includes('NO INGRESA') || val.includes('NO INGRESANTE') || val.includes('NO INGRESO') || val.includes('NO ADMITIDO') || val.includes('NO_INGRESA')) {
+  // Regla de descarte para evitar falsos positivos con "NO INGRESA", "NO INGRESANTE", "NO INGRESO", "NO ADMITIDO", "NO_INGRESA" o "NSP"
+  if (
+    val.includes('NO INGRESA') || 
+    val.includes('NO INGRESANTE') || 
+    val.includes('NO INGRESO') || 
+    val.includes('NO ADMITIDO') || 
+    val.includes('NO_INGRESA') ||
+    val.includes('NSP') ||
+    val.includes('NO SE PRESENTO') ||
+    val.includes('NO SE PRESENTÓ')
+  ) {
     return false;
   }
   if (val.includes('INGRESA') || val.includes('INGRESO') || val.includes('ADMITIDO') || val === 'SI' || val.includes('INGRESANTE')) {
@@ -94,7 +104,7 @@ const isAdmittedRow = (row: any): boolean => {
   ]);
   if (!val && carreraIng) {
     const rowKeysLower = Object.keys(row).map(k => k.toLowerCase().replace(/[\s_-]/g, ''));
-    const hasObsColumn = rowKeysLower.some(k => k.includes('observa') || k.includes('estado') || k.includes('result'));
+    const hasObsColumn = rowKeysLower.some(k => k.includes('observa') || k.includes('estado') || k.includes('result') || k.includes('condic'));
     if (!hasObsColumn) {
       return true; 
     }
@@ -156,23 +166,59 @@ const normalizeRow = (row: any, escuelas: any[]) => {
   const nota = getRowValue(row, ['Nota', 'nota', 'NOTA', 'Puntaje', 'puntaje', 'PUNTAJE', 'notavigesimal', 'notavigesimal', 'NOTA_VIGESIMAL', 'nota_vigesimal']);
   const pos = getRowValue(row, ['POS', 'Pos', 'pos', 'posicion', 'Posicion', 'puesto', 'Puesto', 'OMERITO', 'omerito', 'orden_merito']);
   
-  // --- 1. Detección de la escuela a la que postuló ---
-  // Primero buscamos en Escuela1 (campo clave de postulación) y sus sinónimos
-  const rawPostula = getRowValue(row, ['Escuela1', 'escuela1', 'ESCUELA1', 'carrera_postula', 'CARRERA_POSTULA', 'carrera_opcion', 'CARRERA_OPCION', 'opcion', 'OPCION']);
-  let schoolPostula = null;
-  if (rawPostula) {
-    schoolPostula = findSchool(rawPostula, escuelas);
-  }
+  // --- 1. Detección de las carreras de elección ---
+  // Carrera 1 (Opción 1)
+  const rawCarrera1 = getRowValue(row, [
+    'Carrera 1', 'carrera 1', 'CARRERA 1', 
+    'Carrera1', 'carrera1', 'CARRERA1',
+    'Escuela1', 'escuela1', 'ESCUELA1', 
+    'carrera_postula', 'CARRERA_POSTULA', 
+    'carrera_opcion', 'CARRERA_OPCION', 
+    'opcion', 'OPCION', 'Opcion 1', 'opcion 1', 'OPCION 1'
+  ]);
   
-  // Si no se encuentra, caemos en los campos generales de carrera
-  if (!schoolPostula) {
+  // Carrera 2 (Opción 2)
+  const rawCarrera2 = getRowValue(row, [
+    'Carrera 2', 'carrera 2', 'CARRERA 2', 
+    'Carrera2', 'carrera2', 'CARRERA2',
+    'Escuela2', 'escuela2', 'ESCUELA2', 
+    'Opcion 2', 'opcion 2', 'OPCION 2',
+    'carrera_opcion2', 'CARRERA_OPCION2', 'opcion2', 'OPCION2'
+  ]);
+  
+  let school1 = rawCarrera1 ? findSchool(rawCarrera1, escuelas) : null;
+  let school2 = rawCarrera2 ? findSchool(rawCarrera2, escuelas) : null;
+  
+  if (!school1) {
     const rawCarrera = getRowValue(row, ['Carrera', 'carrera', 'CARRERA', 'escuela', 'Escuela', 'ESCUELA', 'Programa', 'programa', 'PROGRAMA', 'Programa_Estudios', 'programa_estudio', 'PROGRAMA_ESTUDIO', 'E.P.', 'EP', 'Escuela_Profesional', 'Especialidad', 'especialidad']);
-    schoolPostula = findSchool(rawCarrera, escuelas);
+    school1 = findSchool(rawCarrera, escuelas);
   }
   
-  const carreraPostula = schoolPostula ? schoolPostula.codigo_carrera : (rawPostula || '');
-  // --- 2. Detección de la escuela de ingreso (solo si es ingresante) ---
+  const codigoCarrera1 = school1 ? school1.codigo_carrera : (rawCarrera1 || '');
+  const codigoCarrera2 = school2 ? school2.codigo_carrera : (rawCarrera2 || '');
+  
+  // --- 2. Detección del Ingreso y Condición ---
   const isIngresante = isAdmittedRow(row);
+  
+  // Estandarizar la condición original
+  const originalCondicion = getRowValue(row, [
+    'CONDICION', 'condicion', 'CONDICIÓN', 'condición',
+    'OBSERVACION', 'Observacion', 'observacion', 
+    'OBSERVACIONES', 'observaciones', 
+    'ESTADO', 'estado', 'resultado', 'RESULTADO'
+  ]).trim().toUpperCase();
+  
+  let condicionFinal = '';
+  if (originalCondicion.includes('NSP') || originalCondicion.includes('NO SE PRESENTO') || originalCondicion.includes('NO SE PRESENTÓ')) {
+    condicionFinal = 'NSP';
+  } else if (originalCondicion.includes('INGRESANTE S.O.') || originalCondicion.includes('INGRESANTE SO') || originalCondicion.includes('SEGUNDA OPCION') || originalCondicion.includes('SEGUNDA OPCIÓN')) {
+    condicionFinal = 'INGRESANTE S.O.';
+  } else if (isIngresante) {
+    condicionFinal = 'INGRESANTE';
+  } else {
+    condicionFinal = originalCondicion || 'NO INGRESA';
+  }
+  
   let carreraIngreso = '';
   if (isIngresante) {
     const rawCode = getRowValue(row, ['codigo_carrera', 'COD_CARRERA', 'codigo', 'Codigo', 'COD_CAR', 'cod_car', 'COD_ESC', 'cod_esc', 'COD_ESCP', 'cod_escp', 'CODIGO_CARRERA', 'CODIGO_ESCUELA', 'carrera_codigo', 'CODIGO', 'cod_carrera', 'CodCarrera']);
@@ -187,10 +233,16 @@ const normalizeRow = (row: any, escuelas: any[]) => {
       schoolIngreso = findSchool(rawIngreso, escuelas);
     }
     
-    // Si no se detectó un código de ingreso explícito, asumimos que ingresó a la misma carrera a la que postuló
-    carreraIngreso = schoolIngreso ? schoolIngreso.codigo_carrera : (carreraPostula || '');
+    // Si ingresó por segunda opción (S.O.) y no hay carreraIngreso detectada, asignamos Carrera 2
+    if (!schoolIngreso && condicionFinal === 'INGRESANTE S.O.') {
+      carreraIngreso = codigoCarrera2 || '';
+    } else {
+      carreraIngreso = schoolIngreso ? schoolIngreso.codigo_carrera : (codigoCarrera1 || '');
+    }
   }
+  
   const grupo = getRowValue(row, ['grupo', 'Grupo', 'GRUPO', 'area', 'Area', 'AREA', 'especialidad', 'Especialidad', 'filial', 'FILIAL']);
+  
   return {
     ...row,
     NroDocumento: dni,
@@ -198,9 +250,11 @@ const normalizeRow = (row: any, escuelas: any[]) => {
     nombre,
     Nota: nota,
     POS: pos,
-    CarreraPostula: carreraPostula,
+    CarreraPostula: codigoCarrera1,
+    Carrera1: codigoCarrera1,
+    Carrera2: codigoCarrera2,
     CarreraIngreso: isIngresante ? carreraIngreso : '',
-    OBSERVACION: isIngresante ? 'INGRESANTE' : '',
+    OBSERVACION: condicionFinal,
     grupo
   };
 };
@@ -291,6 +345,9 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
   const [listSearchTerm, setListSearchTerm] = useState('');
 
   const [isSaving, setIsSaving] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncTotal, setSyncTotal] = useState(0);
+  const [syncProcessed, setSyncProcessed] = useState(0);
   const [isFinalized, setIsFinalized] = useState(false);
   const [expandedSchool, setExpandedSchool] = useState<string | null>(null);
   const [savedModalidadIds, setSavedModalidadIds] = useState<string[]>([]);
@@ -958,7 +1015,7 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
           }
         }
         // Contamos el ingreso solo si se consolidó como ingresante y tiene código de ingreso
-        if (row.OBSERVACION === 'INGRESANTE' && row.CarreraIngreso) {
+        if (row.OBSERVACION?.toUpperCase().includes('INGRESANTE') && row.CarreraIngreso) {
           const codeIngreso = row.CarreraIngreso;
           if (admitted[codeIngreso] !== undefined) {
             admitted[codeIngreso]++;
@@ -1071,7 +1128,7 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
     const filtered = normalizedCsvData
       .filter(row => {
         if (!row) return false;
-        if (row.OBSERVACION === 'INGRESANTE') return false;
+        if (row.OBSERVACION?.toUpperCase().includes('INGRESANTE')) return false;
         const n = parseFloat(row.Nota);
         return !isNaN(n) && n >= 9;
       })
@@ -1144,6 +1201,51 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
     const school = escuelas.find(e => e.codigo_carrera === code);
     return school ? school.nombre : code;
   };
+
+  // Calcular los puestos correlativos locales por escuela para los ingresantes
+  const localPuestosMap = useMemo(() => {
+    const map: Record<string, number> = {}; 
+    // Agrupar ingresantes por escuela de ingreso
+    const ingresantesPorEscuela: Record<string, any[]> = {};
+    normalizedCsvData.forEach(row => {
+      if (row && row.OBSERVACION?.toUpperCase().includes('INGRESANTE') && row.CarreraIngreso) {
+        const esc = row.CarreraIngreso;
+        if (!ingresantesPorEscuela[esc]) {
+          ingresantesPorEscuela[esc] = [];
+        }
+        ingresantesPorEscuela[esc].push(row);
+      }
+    });
+    // Calcular la posición local en cada escuela
+    Object.keys(ingresantesPorEscuela).forEach(escCode => {
+      const list = ingresantesPorEscuela[escCode];
+      
+      // Separar primera y segunda opción
+      const regular = list.filter(r => r.OBSERVACION === 'INGRESANTE');
+      const so = list.filter(r => r.OBSERVACION === 'INGRESANTE S.O.');
+      // Ordenar por nota descendente. En caso de empate, por puesto original o nombre
+      const sortFn = (a: any, b: any) => {
+        const notaA = parseFloat(a.Nota) || 0;
+        const notaB = parseFloat(b.Nota) || 0;
+        if (notaB !== notaA) return notaB - notaA;
+        
+        const posA = parseInt(a.POS) || 9999;
+        const posB = parseInt(b.POS) || 9999;
+        if (posA !== posB) return posA - posB;
+        
+        return (a.nombre || '').localeCompare(b.nombre || '');
+      };
+      regular.sort(sortFn);
+      so.sort(sortFn);
+      // Combinar primero regular y luego SO (el correlativo continuado)
+      const combined = [...regular, ...so];
+      combined.forEach((row, index) => {
+        const key = `${row.NroDocumento || row.alumno}_${escCode}`;
+        map[key] = index + 1; // Puesto correlativo local asignado
+      });
+    });
+    return map;
+  }, [normalizedCsvData]);
 
   // --- Dynamic Dashboard & Analytical Calculations ---
   const sexData = useMemo(() => {
@@ -1265,7 +1367,7 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
           counts[ageNum] = { postulantes: 0, ingresantes: 0 };
         }
         counts[ageNum].postulantes++;
-        if (row.OBSERVACION === 'INGRESANTE') {
+        if (row.OBSERVACION?.toUpperCase().includes('INGRESANTE')) {
           counts[ageNum].ingresantes++;
         }
       }
@@ -1335,7 +1437,7 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
         schoolCounts[key].areas[area] = { total: 0, admitted: 0 };
       }
       schoolCounts[key].areas[area].total++;
-      if (row.OBSERVACION === 'INGRESANTE') {
+      if (row.OBSERVACION?.toUpperCase().includes('INGRESANTE')) {
         schoolCounts[key].admitted++;
         schoolCounts[key].areas[area].admitted++;
       }
@@ -1515,7 +1617,7 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
         if (notaVal > max) max = notaVal;
         if (notaVal < min) min = notaVal;
 
-        const isIngresante = row.OBSERVACION === 'INGRESANTE';
+        const isIngresante = row.OBSERVACION?.toUpperCase().includes('INGRESANTE');
 
         if (notaVal < 5) {
           p_0_5++;
@@ -1695,7 +1797,7 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
     doc.line(margin, y, margin + 50, y);
     y += 8;
     const totalPostulantes = normalizedCsvData.length;
-    const totalIngresantes = normalizedCsvData.filter(r => r.OBSERVACION === 'INGRESANTE').length;
+    const totalIngresantes = normalizedCsvData.filter(r => r.OBSERVACION?.toUpperCase().includes('INGRESANTE')).length;
     const tasaGlobal = totalPostulantes > 0 ? ((totalIngresantes / totalPostulantes) * 100).toFixed(1) : '0.0';
     const boxW = (pageWidth - margin * 2 - 9) / 4;
     const metrics = [
@@ -1974,6 +2076,68 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
     }
     const safeName = modalidadName.replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ\s-]/g, '').replace(/\s+/g, '_');
     doc.save(`Reporte_Competitividad_${safeName}_${new Date().getTime()}.pdf`);
+  };
+
+  const handleSyncParticipantesOmerito = async () => {
+    setIsSyncing(true);
+    setSyncProcessed(0);
+    setSyncTotal(0);
+    try {
+      const ingresantes = normalizedCsvData.filter(row => row.OBSERVACION?.toUpperCase().includes('INGRESANTE'));
+      
+      if (ingresantes.length === 0) {
+        notify?.('No se encontraron ingresantes en el archivo actual para sincronizar.', 'warning');
+        setIsSyncing(false);
+        return;
+      }
+      if (!window.confirm(`¿Sincronizar puestos (correlativos locales) en Supabase para los ${ingresantes.length} ingresantes de este proceso? Esto corregirá los registros guardados en la tabla 'participantes'.`)) {
+        setIsSyncing(false);
+        return;
+      }
+
+      setSyncTotal(ingresantes.length);
+
+      // Estructurar el payload para enviar al backend
+      const allUpdates = ingresantes.map(ing => {
+        const key = `${ing.NroDocumento || ing.alumno}_${ing.CarreraIngreso}`;
+        const localPuesto = localPuestosMap[key];
+        return {
+          dni: ing.NroDocumento || ing.alumno,
+          omerito: localPuesto ? localPuesto.toString() : (ing.POS || ''),
+          codigo_carrera: ing.CarreraIngreso,
+          semestre: selectedSemestre
+        };
+      });
+
+      // Procesar en lotes/chunks de 20 para mostrar progreso fluido y evitar timeouts
+      const chunkSize = 20;
+      let totalUpdatedCount = 0;
+
+      for (let i = 0; i < allUpdates.length; i += chunkSize) {
+        const chunk = allUpdates.slice(i, i + chunkSize);
+        
+        const res = await fetch('/api/sync-participantes-omerito', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ updates: chunk })
+        });
+        
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          throw new Error(data.error || 'Error al comunicarse con el servidor');
+        }
+        
+        totalUpdatedCount += data.updatedCount;
+        setSyncProcessed(prev => Math.min(prev + chunk.length, ingresantes.length));
+      }
+
+      notify?.(`Se sincronizaron con éxito ${totalUpdatedCount} registros en la tabla de participantes.`, 'success');
+    } catch (e: any) {
+      console.error(e);
+      notify?.(`Error en la sincronización: ${e.message}`, 'error');
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const handleApproveAndMigrate = async () => {
@@ -2445,6 +2609,19 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
                   <span className="material-symbols-outlined text-[18px]">clear_all</span>
                   Limpiar
                 </button>
+                {/* NUEVO: Botón de Sincronizar Puestos en la BD */}
+                <button 
+                  onClick={handleSyncParticipantesOmerito}
+                  disabled={isSyncing || isSaving}
+                  className="px-4 py-2 rounded-xl text-sm font-bold uppercase tracking-wider bg-indigo-600 text-white hover:bg-indigo-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+                >
+                  {isSyncing ? (
+                    <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>
+                  ) : (
+                    <span className="material-symbols-outlined text-[18px]">sync</span>
+                  )}
+                  Sincronizar Puestos
+                </button>
                 {isFinalized ? (
                   <button 
                     disabled={true}
@@ -2471,6 +2648,31 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
               </div>
             </div>
 
+            {/* Sincronizando Progreso */}
+            {isSyncing && (
+              <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-5 shadow-sm flex flex-col md:flex-row gap-4 items-center justify-between animate-fade-in">
+                <div className="flex items-center gap-4 w-full md:w-auto">
+                  <div className="size-11 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0 animate-spin">
+                    <span className="material-symbols-outlined text-2xl">sync</span>
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-slate-800 text-sm">Sincronizando Puestos Correlativos Locales</h4>
+                    <p className="text-xs text-slate-500 font-medium mt-0.5">
+                      Actualizando registros en la base de datos: <span className="font-bold text-indigo-700">{syncProcessed}</span> de <span className="font-bold text-slate-700">{syncTotal}</span> ingresantes ({Math.round((syncProcessed / (syncTotal || 1)) * 100)}%)
+                    </p>
+                  </div>
+                </div>
+                <div className="w-full md:w-80 shrink-0">
+                  <div className="h-2.5 w-full bg-slate-200 rounded-full overflow-hidden border border-slate-300/30">
+                    <div 
+                      className="h-full bg-indigo-600 rounded-full transition-all duration-300"
+                      style={{ width: `${Math.round((syncProcessed / (syncTotal || 1)) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Cobertura Tab */}
             {activeTab === 'Cobertura' && (
               <div className="space-y-6">
@@ -2496,7 +2698,7 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
                     <div>
                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Ingresantes</p>
                       <p className="text-2xl font-black text-emerald-600 tracking-tight">
-                        {normalizedCsvData.filter(r => r.OBSERVACION === 'INGRESANTE').length}
+                        {normalizedCsvData.filter(r => r.OBSERVACION?.toUpperCase().includes('INGRESANTE')).length}
                       </p>
                       <p className="text-[10px] text-slate-400 mt-0.5">Vacantes cubiertas</p>
                     </div>
@@ -2517,7 +2719,7 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
                   <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200/80 flex items-center gap-4 relative overflow-hidden">
                     {(() => {
                       const totalVac = (Object.values(vacanciesBySchool) as number[]).reduce((a,b) => a+b, 0);
-                      const totalAdm = normalizedCsvData.filter(r => r.OBSERVACION === 'INGRESANTE').length;
+                      const totalAdm = normalizedCsvData.filter(r => r.OBSERVACION?.toUpperCase().includes('INGRESANTE')).length;
                       const diff = totalVac - totalAdm;
                       const isNegative = diff < 0;
                       return (
@@ -2735,13 +2937,40 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
                     </thead>
                     <tbody className="text-sm divide-y divide-slate-100">
                       {filteredList.map((row, idx) => {
-                        const isIngresante = row.OBSERVACION?.trim().toUpperCase() === 'INGRESANTE';
+                        const obs = row.OBSERVACION?.trim().toUpperCase() || '';
+                        const isIngresante = obs.includes('INGRESANTE');
+                        const isSO = obs === 'INGRESANTE S.O.';
+                        const isNSP = obs === 'NSP';
+                        
                         return (
-                          <tr key={idx} className={`transition-colors ${isIngresante ? 'bg-emerald-50/30 hover:bg-emerald-50' : 'hover:bg-slate-50'}`}>
+                          <tr key={idx} className={`transition-colors ${isIngresante ? (isSO ? 'bg-amber-50/20 hover:bg-amber-50/40' : 'bg-emerald-50/30 hover:bg-emerald-50') : 'hover:bg-slate-50'}`}>
                             <td className="p-4 font-mono text-slate-600">{row.NroDocumento || row.alumno}</td>
-                            <td className="p-4 font-bold text-slate-800">{row.nombre}</td>
+                            
+                            {/* Visualización de Nombre + Carreras de Elección */}
+                            <td className="p-4">
+                              <p className="font-bold text-slate-800">{row.nombre}</p>
+                              {(row.Carrera1 || row.Carrera2) && (
+                                <p className="text-[10px] text-slate-400 mt-0.5">
+                                  {row.Carrera1 && <span>1ra: <strong className="text-slate-500">{getSchoolName(row.Carrera1)}</strong></span>}
+                                  {row.Carrera1 && row.Carrera2 && <span className="mx-1.5">•</span>}
+                                  {row.Carrera2 && <span>2da: <strong className="text-slate-500">{getSchoolName(row.Carrera2)}</strong></span>}
+                                </p>
+                              )}
+                            </td>
+                            
                             <td className="p-4 text-center font-black text-slate-700">{row.Nota}</td>
-                            <td className="p-4 text-center font-bold text-slate-500">{row.POS}</td>
+                            
+                            {/* Mostrar Puesto Correlativo Local para ingresantes, u original para no-ingresantes */}
+                            <td className="p-4 text-center">
+                              {isIngresante ? (
+                                <span className="font-black text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 shadow-sm">
+                                  {localPuestosMap[`${row.NroDocumento || row.alumno}_${row.CarreraIngreso}`] || '--'}
+                                </span>
+                              ) : (
+                                <span className="font-bold text-slate-500">{row.POS || '--'}</span>
+                              )}
+                            </td>
+                            
                             <td className="p-4">
                               {isIngresante ? (
                                 <p className="font-bold text-primary">{getSchoolName(row.CarreraIngreso)}</p>
@@ -2749,12 +2978,28 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
                                 <p className="text-slate-400 italic text-xs">--</p>
                               )}
                             </td>
+                            
+                            {/* Badges de condición específicos */}
                             <td className="p-4">
                               {isIngresante ? (
-                                <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full">
-                                  Ingresante
+                                isSO ? (
+                                  <span className="bg-amber-100 text-amber-700 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border border-amber-200 shadow-sm">
+                                    Ingresante S.O.
+                                  </span>
+                                ) : (
+                                  <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border border-emerald-200 shadow-sm">
+                                    Ingresante
+                                  </span>
+                                )
+                              ) : isNSP ? (
+                                <span className="bg-rose-100 text-rose-700 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border border-rose-200 shadow-sm">
+                                  NSP (Faltó)
                                 </span>
-                              ) : null}
+                              ) : (
+                                <span className="bg-slate-100 text-slate-600 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border border-slate-200">
+                                  No Ingresó
+                                </span>
+                              )}
                             </td>
                           </tr>
                         );
@@ -2839,10 +3084,10 @@ export const ApplicantPreReview: React.FC<ApplicantPreReviewProps> = ({ user, no
                     </div>
                     <div className="flex items-baseline gap-2">
                       <p className="text-3xl font-black text-emerald-600 tracking-tight">
-                        {normalizedCsvData.filter(r => r.OBSERVACION === 'INGRESANTE').length}
+                        {normalizedCsvData.filter(r => r.OBSERVACION?.toUpperCase().includes('INGRESANTE')).length}
                       </p>
                       <p className="text-xs font-bold text-emerald-500 bg-emerald-50 px-1.5 py-0.5 rounded">
-                        {normalizedCsvData.length > 0 ? ((normalizedCsvData.filter(r => r.OBSERVACION === 'INGRESANTE').length / normalizedCsvData.length) * 100).toFixed(1) : '0'}%
+                        {normalizedCsvData.length > 0 ? ((normalizedCsvData.filter(r => r.OBSERVACION?.toUpperCase().includes('INGRESANTE')).length / normalizedCsvData.length) * 100).toFixed(1) : '0'}%
                       </p>
                     </div>
                   </div>
